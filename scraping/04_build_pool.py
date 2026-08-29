@@ -47,7 +47,13 @@ PER90_FIELDS = [
     "possessionLost", "fouls", "wasFouled",
 ]
 
-CB_CODES = {"CB"}  # characteristics position codes counted as centre-back
+# Characteristics position codes counted as centre-back. Sofascore has used
+# both vocabularies ("CB" and the Opta-style "DC" = defender-centre); accept
+# either. If tagging reports 0 CBs, print the codes actually seen:
+#   python -c "import csv,collections; print(collections.Counter(p for r in
+#   csv.DictReader(open('data/raw/characteristics.csv')) for p in
+#   r['positions'].split('|') if p))"
+CB_CODES = {"CB", "DC"}
 
 
 def read_csv(filename: str) -> list[dict]:
@@ -124,19 +130,19 @@ def enrich_positions(pool: list[dict]) -> None:
         cache = {r["player_id"]: r["positions"] for r in read_csv("characteristics.csv")}
 
     client = SofascoreClient()
-    missing = [p for p in pool if p["player_id"] not in cache]
+    # unique ids: a player appearing in both seasons is fetched once
+    missing = sorted({p["player_id"] for p in pool} - set(cache))
     if missing:
         print(f"fetching detailed positions for {len(missing)} pool players "
               f"(~{len(missing) * 1.5 / 60:.0f} min)...")
-    for i, player in enumerate(missing, 1):
+    for i, player_id in enumerate(missing, 1):
         try:
-            body = client.get("player", player["player_id"], "characteristics",
-                              ok404=True)
+            body = client.get("player", player_id, "characteristics", ok404=True)
             positions = parse_characteristics(body)
         except Exception as exc:  # noqa: BLE001 - enrichment must never kill the pool
-            print(f"  characteristics failed for {player['player_name']}: {exc}")
+            print(f"  characteristics failed for player {player_id}: {exc}")
             positions = []
-        cache[player["player_id"]] = "|".join(positions)
+        cache[player_id] = "|".join(positions)
         if i % 25 == 0:
             print(f"  {i}/{len(missing)}")
 
