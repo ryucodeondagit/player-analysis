@@ -18,6 +18,9 @@ TITLE_PERCENTILES   <- "Ahanor Against His Generation"
 TITLE_DISTRIBUTIONS <- "The U23 Field, Metric by Metric"
 TITLE_SCATTER       <- "The Ball-Winning Plane"
 
+# how many top combined performers get named/highlighted on the scatter
+N_TOP_PLAYERS <- 10
+
 POOL_CSV <- "data/raw/pool_u23_defenders.csv"
 MIN_CB_POOL <- 15  # fewer tagged CBs than this -> fall back to all defenders
 
@@ -208,7 +211,7 @@ sc <- pool |>
 others <- sc |> filter(player_id != PLAYER_ID)
 top_ids <- others$player_id[
   order(-(as.numeric(scale(others$t90)) + as.numeric(scale(others$i90))))
-][1:6]
+][1:N_TOP_PLAYERS]
 
 sc <- sc |>
   mutate(grp = case_when(
