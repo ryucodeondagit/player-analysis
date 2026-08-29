@@ -15,6 +15,7 @@ SCRAPING = Path(__file__).resolve().parent.parent / "scraping"
 sys.path.insert(0, str(SCRAPING))
 
 from sofascore import (  # noqa: E402
+    parse_characteristics,
     parse_event,
     parse_heatmap,
     parse_leaderboard_page,
@@ -99,6 +100,13 @@ def test_parse_squad_and_standings():
                                  {"team": {"id": 2697, "name": "Inter"}}]}]}
     )
     assert teams == [(2686, "Atalanta"), (2697, "Inter")]
+
+
+def test_parse_characteristics():
+    assert parse_characteristics({"positions": ["CB", "LB"]}) == ["CB", "LB"]
+    assert parse_characteristics({"positions": [{"odd": 1}, "CB"]}) == ["CB"]
+    assert parse_characteristics({}) == []
+    assert parse_characteristics(None) == []
 
 
 def test_parse_leaderboard_page():

@@ -1,25 +1,29 @@
-"""Build the age-comparison pool: Serie A player stats + birth dates.
+"""Build the raw comparison pool: player stats + birth dates for ALL Big-5 leagues.
 
-Replaces the FBref Big-5 pool (FBref blocks scrapers and its community
-mirror went stale). Two datasets that join on player_id:
+For each of the five leagues (see BIG5_LEAGUES in sofascore.py):
+  * the season leaderboard - stats for every ranked player, all positions
+    (position/age filtering happens later, so changing cutoffs never
+    triggers a re-scrape)
+  * every squad in the league - birth dates, coarse positions, heights
 
-  peer_stats.csv   season statistics for every ranked Serie A player
-                   (paginated leaderboard endpoint, all positions - filter
-                   to defenders/age band at analysis time, so changing the
-                   cutoff never needs a re-scrape)
-  squads.csv       every player in every Serie A squad with birth date,
-                   position, height (20 team-squad calls)
+Outputs (data/raw/):
+  peer_stats_<league>.csv / squads_<league>.csv   per-league caches, so an
+                                                  interrupted run resumes at
+                                                  the next league
+  peer_stats.csv / squads.csv                     all leagues combined, with
+                                                  a `league` column
 
-The analysis step joins these, computes ages at a reference date, filters
-to the comparison group (e.g. defenders born 2007+, 500+ minutes), and
-ranks Ahanor's percentiles within it.
+Roughly 130 requests total (~4 minutes at the built-in throttle).
 
-Run:  python scraping/03_scrape_peer_pool.py   (run 01 first is NOT required)
+Run:  python scraping/03_scrape_peer_pool.py
 """
 
+import csv
+
 from sofascore import (
+    BIG5_LEAGUES,
+    DATA_RAW,
     SEASON_NAME,
-    SERIE_A_ID,
     SofascoreClient,
     output_exists,
     parse_leaderboard_page,
@@ -51,20 +55,20 @@ PAGE_SIZE = 100
 MAX_PAGES = 20  # safety stop; a 20-team league has < 700 ranked players
 
 
-def find_season_id(client: SofascoreClient) -> int:
-    """Serie A season id for SEASON_NAME (e.g. '25/26')."""
-    body = client.get("unique-tournament", SERIE_A_ID, "seasons")
+def find_season_id(client: SofascoreClient, league_id: int, league: str) -> int:
+    """The league's season id for SEASON_NAME (e.g. '25/26')."""
+    body = client.get("unique-tournament", league_id, "seasons")
     for season in (body or {}).get("seasons", []):
         if season.get("year") == SEASON_NAME:
             return season["id"]
     available = [s.get("year") for s in (body or {}).get("seasons", [])][:8]
     raise SystemExit(
-        f"Season {SEASON_NAME!r} not found; Sofascore lists {available}. "
-        "Adjust SEASON_NAME in sofascore.py"
+        f"Season {SEASON_NAME!r} not found for {league}; Sofascore lists "
+        f"{available}. Adjust SEASON_NAME in sofascore.py"
     )
 
 
-def fetch_leaderboard(client: SofascoreClient, season_id: int) -> list[dict]:
+def fetch_leaderboard(client: SofascoreClient, league_id: int, season_id: int) -> list[dict]:
     fields = FIELDS
     rows: list[dict] = []
     for page in range(MAX_PAGES):
@@ -77,7 +81,7 @@ def fetch_leaderboard(client: SofascoreClient, season_id: int) -> list[dict]:
         }
         try:
             body = client.get(
-                "unique-tournament", SERIE_A_ID, "season", season_id, "statistics",
+                "unique-tournament", league_id, "season", season_id, "statistics",
                 params=params,
             )
         except Exception as exc:  # noqa: BLE001 - one focused fallback, then raise
@@ -91,41 +95,69 @@ def fetch_leaderboard(client: SofascoreClient, season_id: int) -> list[dict]:
         if not page_rows:
             break
         rows.extend(page_rows)
-        print(f"leaderboard page {page + 1}: {len(page_rows)} players "
+        print(f"  leaderboard page {page + 1}: {len(page_rows)} players "
               f"({len(rows)} total)")
         if len(page_rows) < PAGE_SIZE:
             break
     return rows
 
 
-def fetch_squads(client: SofascoreClient, season_id: int) -> list[dict]:
+def fetch_squads(client: SofascoreClient, league_id: int, season_id: int) -> list[dict]:
     body = client.get(
-        "unique-tournament", SERIE_A_ID, "season", season_id, "standings", "total"
+        "unique-tournament", league_id, "season", season_id, "standings", "total"
     )
     teams = parse_standings_team_ids(body)
     if not teams:
-        raise SystemExit("No teams in standings - check season id / endpoint")
-    print(f"{len(teams)} teams in standings")
+        raise SystemExit("No teams in standings - check league/season id")
+    print(f"  {len(teams)} teams in standings")
 
     rows: list[dict] = []
     for team_id, team_name in teams:
         body = client.get("team", team_id, "players", ok404=True)
         squad = parse_squad(body, team_id, team_name)
-        print(f"squad {team_name}: {len(squad)} players")
+        print(f"  squad {team_name}: {len(squad)} players")
         rows.extend(squad)
     return rows
 
 
+def combine(per_league_files: list[str], out: str) -> None:
+    """Concatenate per-league CSVs (adding nothing - league col already there)."""
+    rows: list[dict] = []
+    for filename in per_league_files:
+        with open(DATA_RAW / filename, encoding="utf-8") as fh:
+            rows.extend(csv.DictReader(fh))
+    write_csv(rows, out)
+
+
 def main() -> None:
     client = SofascoreClient()
-    season_id = find_season_id(client)
-    print(f"Serie A {SEASON_NAME} -> season id {season_id}")
 
-    if not output_exists("peer_stats.csv"):
-        write_csv(fetch_leaderboard(client, season_id), "peer_stats.csv")
+    stats_files, squad_files = [], []
+    for league, league_id in BIG5_LEAGUES.items():
+        stats_file = f"peer_stats_{league}.csv"
+        squad_file = f"squads_{league}.csv"
+        stats_files.append(stats_file)
+        squad_files.append(squad_file)
 
-    if not output_exists("squads.csv"):
-        write_csv(fetch_squads(client, season_id), "squads.csv")
+        if output_exists(stats_file) and output_exists(squad_file):
+            continue
+        season_id = find_season_id(client, league_id, league)
+        print(f"{league} {SEASON_NAME} -> season id {season_id}")
+
+        if not output_exists(stats_file):
+            rows = fetch_leaderboard(client, league_id, season_id)
+            for row in rows:
+                row["league"] = league
+            write_csv(rows, stats_file)
+
+        if not output_exists(squad_file):
+            rows = fetch_squads(client, league_id, season_id)
+            for row in rows:
+                row["league"] = league
+            write_csv(rows, squad_file)
+
+    combine(stats_files, "peer_stats.csv")
+    combine(squad_files, "squads.csv")
 
 
 if __name__ == "__main__":

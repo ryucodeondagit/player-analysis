@@ -3,7 +3,14 @@
 data/raw/*
 !data/raw/.gitkeep
 
+# Generated charts (re-creatable by R/comparisons.R)
+figures/
+
 # Python litter
 __pycache__/
 *.pyc
 .venv/
+
+# R litter
+.Rhistory
+.RData

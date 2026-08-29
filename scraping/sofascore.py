@@ -53,6 +53,22 @@ PLAYER_ID = 1634980  # https://www.sofascore.com/football/player/honest-ahanor/1
 PLAYER_NAME = "Honest Ahanor"
 SERIE_A_ID = 23           # Sofascore uniqueTournament id for Serie A
 SEASON_NAME = "25/26"     # season label as Sofascore prints it (his Atalanta season)
+
+# The Big 5 leagues by Sofascore uniqueTournament id. The peer-pool scraper
+# loops these; slugs name the per-league cache files. If a scrape prints an
+# unexpected league name next to an id, fix the id here.
+BIG5_LEAGUES = {
+    "premier-league": 17,
+    "laliga": 8,
+    "serie-a": 23,
+    "bundesliga": 35,
+    "ligue-1": 34,
+}
+
+# Age filter for the comparison pool: "under 23" as of the season's end.
+REFERENCE_DATE = date(2026, 6, 30)
+AGE_MAX = 23              # keep players with age < AGE_MAX at REFERENCE_DATE
+MIN_MINUTES = 600         # pool entry requires this many league minutes
 CUTOFF_DATE = date(2025, 8, 1)  # ignore matches before this (widen for Genoa era)
 
 DATA_RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
@@ -262,6 +278,19 @@ def parse_standings_team_ids(body: dict | None) -> list[tuple[int, str]]:
             if team.get("id") is not None:
                 teams.append((team["id"], team.get("name")))
     return teams
+
+
+def parse_characteristics(body: dict | None) -> list[str]:
+    """Detailed position codes (e.g. ['CB', 'LB']) from /player/{id}/characteristics.
+
+    Best-effort: this endpoint is the one place Sofascore exposes
+    centre-back vs full-back granularity (the leaderboard only says 'D').
+    Returns [] whenever the response is missing or shaped differently.
+    """
+    if not body:
+        return []
+    positions = body.get("positions") or []
+    return [p for p in positions if isinstance(p, str)]
 
 
 def parse_leaderboard_page(body: dict | None) -> list[dict]:
