@@ -1,0 +1,10 @@
+# Scraped data stays local by default (re-creatable by running the scripts).
+# If you want a frozen snapshot in git, remove these two lines deliberately.
+data/raw/*
+!data/raw/.gitkeep
+
+# R session litter
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
