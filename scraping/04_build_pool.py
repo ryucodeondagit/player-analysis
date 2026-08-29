@@ -27,13 +27,15 @@ from datetime import date
 
 from sofascore import (
     AGE_MAX,
+    CB_CODES,
     DATA_RAW,
     MIN_MINUTES,
     PLAYER_ID,
     SEASONS,
     SofascoreClient,
+    fetch_characteristics,
+    load_characteristics_cache,
     output_exists,
-    parse_characteristics,
     write_csv,
 )
 
@@ -47,15 +49,6 @@ PER90_FIELDS = [
     "possessionLost", "fouls", "wasFouled",
 ]
 
-# Characteristics position codes counted as centre-back. Sofascore has used
-# both vocabularies ("CB" and the Opta-style "DC" = defender-centre); accept
-# either. If tagging reports 0 CBs, print the codes actually seen:
-#   python -c "import csv,collections; print(collections.Counter(p for r in
-#   csv.DictReader(open('data/raw/characteristics.csv')) for p in
-#   r['positions'].split('|') if p))"
-CB_CODES = {"CB", "DC"}
-
-
 def read_csv(filename: str) -> list[dict]:
     with open(DATA_RAW / filename, encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
@@ -68,7 +61,7 @@ def to_float(value):
         return None
 
 
-def build_pool() -> list[dict]:
+def build_pool(apply_age_filter: bool = True) -> list[dict]:
     stats = read_csv("peer_stats.csv")
     if stats and "season" not in stats[0]:
         raise SystemExit(
@@ -101,7 +94,9 @@ def build_pool() -> list[dict]:
         if not is_subject:
             if position != "D":
                 continue
-            if age >= AGE_MAX or not minutes or minutes < MIN_MINUTES:
+            if apply_age_filter and age >= AGE_MAX:
+                continue
+            if not minutes or minutes < MIN_MINUTES:
                 continue
 
         merged = {
@@ -124,32 +119,8 @@ def build_pool() -> list[dict]:
 
 def enrich_positions(pool: list[dict]) -> None:
     """Add is_cb via /player/{id}/characteristics (cached in characteristics.csv)."""
-    cache_path = DATA_RAW / "characteristics.csv"
-    cache: dict[str, str] = {}
-    if cache_path.exists():
-        cache = {r["player_id"]: r["positions"] for r in read_csv("characteristics.csv")}
-
-    client = SofascoreClient()
-    # unique ids: a player appearing in both seasons is fetched once
-    missing = sorted({p["player_id"] for p in pool} - set(cache))
-    if missing:
-        print(f"fetching detailed positions for {len(missing)} pool players "
-              f"(~{len(missing) * 1.5 / 60:.0f} min)...")
-    for i, player_id in enumerate(missing, 1):
-        try:
-            body = client.get("player", player_id, "characteristics", ok404=True)
-            positions = parse_characteristics(body)
-        except Exception as exc:  # noqa: BLE001 - enrichment must never kill the pool
-            print(f"  characteristics failed for player {player_id}: {exc}")
-            positions = []
-        cache[player_id] = "|".join(positions)
-        if i % 25 == 0:
-            print(f"  {i}/{len(missing)}")
-
-    write_csv(
-        [{"player_id": pid, "positions": pos} for pid, pos in cache.items()],
-        "characteristics.csv",
-    )
+    cache = load_characteristics_cache()
+    fetch_characteristics(SofascoreClient(), {p["player_id"] for p in pool}, cache)
 
     for player in pool:
         positions = cache.get(player["player_id"], "")
@@ -161,6 +132,13 @@ def enrich_positions(pool: list[dict]) -> None:
 
 
 def main() -> None:
+    # all-ages defender pool: the common percentile scale for the club
+    # comparison chart (no age filter, no CB enrichment needed)
+    if not output_exists("pool_defenders_all.csv"):
+        all_pool = build_pool(apply_age_filter=False)
+        print(f"all-ages pool: {len(all_pool)} defenders")
+        write_csv(all_pool, "pool_defenders_all.csv")
+
     if output_exists("pool_u23_defenders.csv"):
         return
     pool = build_pool()

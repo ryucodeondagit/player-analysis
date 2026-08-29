@@ -24,39 +24,7 @@ N_TOP_PLAYERS <- 10
 POOL_CSV <- "data/raw/pool_u23_defenders.csv"
 MIN_CB_POOL <- 15  # fewer tagged CBs than this -> fall back to all defenders
 
-# Metrics to compare: column name -> readable label. Only columns actually
-# present in the CSV are used, so a Sofascore field going missing shrinks the
-# chart instead of breaking it. "lower is better" metrics get inverted so
-# every percentile reads "higher = better".
-METRICS <- c(
-  rating                      = "Sofascore rating",
-  tackles_per90               = "Tackles /90",
-  interceptions_per90         = "Interceptions /90",
-  clearances_per90            = "Clearances /90",
-  ballRecovery_per90          = "Ball recoveries /90",
-  blockedShots_per90          = "Blocked shots /90",
-  aerialDuelsWon_per90        = "Aerial duels won /90",
-  aerialDuelsWonPercentage    = "Aerial duel win %",
-  totalDuelsWonPercentage     = "Duel win %",
-  accuratePasses_per90        = "Accurate passes /90",
-  accuratePassesPercentage    = "Pass accuracy %",
-  accurateLongBalls_per90     = "Accurate long balls /90",
-  possessionLost_per90        = "Possession lost /90"
-)
-LOWER_IS_BETTER <- c("possessionLost_per90")
-
-# metric families - the percentile chart groups its bars by these
-METRIC_GROUPS <- c(
-  rating = "Overall",
-  tackles_per90 = "Defending", interceptions_per90 = "Defending",
-  clearances_per90 = "Defending", ballRecovery_per90 = "Defending",
-  blockedShots_per90 = "Defending",
-  aerialDuelsWon_per90 = "Duels", aerialDuelsWonPercentage = "Duels",
-  totalDuelsWonPercentage = "Duels",
-  accuratePasses_per90 = "On the ball", accuratePassesPercentage = "On the ball",
-  accurateLongBalls_per90 = "On the ball", possessionLost_per90 = "On the ball"
-)
-GROUP_ORDER <- c("Overall", "Defending", "Duels", "On the ball")
+# METRICS / METRIC_GROUPS / LOWER_IS_BETTER are shared config in viz_common.R
 
 # ---- load + choose the pool -------------------------------------------------
 raw <- readr::read_csv(POOL_CSV, show_col_types = FALSE)

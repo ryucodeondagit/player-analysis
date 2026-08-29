@@ -45,13 +45,17 @@ scraping/02_scrape_heatmaps.py  match list, per-match heatmap points,
 scraping/03_scrape_peer_pool.py ALL Big-5 leagues: leaderboard stats +
                                 squad birth dates (per-league caches)
 scraping/04_build_pool.py       join + filter -> pool_u23_defenders.csv
-                                (U23, 600+ min, per-90s, is_cb tag)
+                                (U23, 600+ min, per-90s, is_cb tag) and
+                                pool_defenders_all.csv (same, any age)
+scraping/05_scrape_club_cbs.py  COMPARE_CLUB's centre-backs -> club_cbs.csv
 R/viz_common.R                  shared: packages, design tokens, theme,
                                 pitch drawing (sourced, not run)
 R/comparisons.R                 percentile bars, pool distributions,
                                 tackles-vs-interceptions scatter
 R/heatmaps.R                    pitch heatmaps: Serie A seasons side by
                                 side + 25/26 all competitions
+R/club_comparison.R             Ahanor vs COMPARE_CLUB's CB room, dot-range
+                                chart on an all-ages percentile scale
 tests/test_parsing.py           offline tests (mock JSON, no network)
 data/raw/                       CSV output (gitignored; re-creatable)
 ```
@@ -64,8 +68,10 @@ python scraping/01_scrape_player.py
 python scraping/02_scrape_heatmaps.py    # run after 01 (uses its seasons list)
 python scraping/03_scrape_peer_pool.py   # ~160 requests, ~5 minutes
 python scraping/04_build_pool.py         # join/filter + CB tagging
+python scraping/05_scrape_club_cbs.py    # a handful of requests, cached
 Rscript R/comparisons.R                  # needs R with ggplot2 etc. (auto-installs)
 Rscript R/heatmaps.R                     # pitch heatmaps -> figures/
+Rscript R/club_comparison.R              # the club-fit chart -> figures/
 python tests/test_parsing.py             # offline sanity check, no network
 ```
 

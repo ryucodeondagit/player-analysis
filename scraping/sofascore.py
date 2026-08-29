@@ -75,6 +75,13 @@ BIG5_LEAGUES = {
 # Age filter for the comparison pool: "under 23" as of each season's end.
 AGE_MAX = 23              # keep players with age < AGE_MAX at that reference
 MIN_MINUTES = 600         # pool entry requires this many league minutes
+
+# Club whose centre-backs Ahanor gets compared against (05_scrape_club_cbs.py).
+COMPARE_CLUB = "Chelsea"
+
+# Characteristics position codes counted as centre-back. Sofascore has used
+# both vocabularies ("CB" and the Opta-style "DC" = defender-centre).
+CB_CODES = {"CB", "DC"}
 CUTOFF_DATE = date(2024, 7, 1)  # match-data horizon: start of the 24/25 season
 
 DATA_RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
@@ -195,6 +202,47 @@ def ts_to_date(timestamp) -> date | None:
     if timestamp is None:
         return None
     return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).date()
+
+
+# ---- characteristics cache (player_id -> "CB|LB" style position string) -----
+# Shared by 04_build_pool.py and 05_scrape_club_cbs.py so a player is only
+# ever fetched once across both scripts.
+
+def load_characteristics_cache() -> dict[str, str]:
+    import csv
+
+    path = DATA_RAW / "characteristics.csv"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return {row["player_id"]: row["positions"] for row in csv.DictReader(fh)}
+
+
+def save_characteristics_cache(cache: dict[str, str]) -> None:
+    write_csv(
+        [{"player_id": pid, "positions": pos} for pid, pos in cache.items()],
+        "characteristics.csv",
+    )
+
+
+def fetch_characteristics(client, player_ids, cache: dict[str, str]) -> None:
+    """Fill cache for any of player_ids not in it (one request each)."""
+    missing = sorted({str(p) for p in player_ids} - set(cache))
+    if not missing:
+        return
+    print(f"fetching detailed positions for {len(missing)} players "
+          f"(~{len(missing) * 1.5 / 60:.0f} min)...")
+    for i, player_id in enumerate(missing, 1):
+        try:
+            body = client.get("player", player_id, "characteristics", ok404=True)
+            positions = parse_characteristics(body)
+        except Exception as exc:  # noqa: BLE001 - enrichment is never fatal
+            print(f"  characteristics failed for player {player_id}: {exc}")
+            positions = []
+        cache[player_id] = "|".join(positions)
+        if i % 25 == 0:
+            print(f"  {i}/{len(missing)}")
+    save_characteristics_cache(cache)
 
 
 # ---- pure parsing functions (tested offline in tests/test_parsing.py) --------

@@ -88,6 +88,38 @@ theme_pitchside <- function() {
     )
 }
 
+# ---- shared metric config ---------------------------------------------------
+# Metric column -> readable label; grouped into families for the bar/dot
+# charts. "Lower is better" metrics get their percentile inverted so every
+# chart reads "higher = better".
+METRICS <- c(
+  rating                      = "Sofascore rating",
+  tackles_per90               = "Tackles /90",
+  interceptions_per90         = "Interceptions /90",
+  clearances_per90            = "Clearances /90",
+  ballRecovery_per90          = "Ball recoveries /90",
+  blockedShots_per90          = "Blocked shots /90",
+  aerialDuelsWon_per90        = "Aerial duels won /90",
+  aerialDuelsWonPercentage    = "Aerial duel win %",
+  totalDuelsWonPercentage     = "Duel win %",
+  accuratePasses_per90        = "Accurate passes /90",
+  accuratePassesPercentage    = "Pass accuracy %",
+  accurateLongBalls_per90     = "Accurate long balls /90",
+  possessionLost_per90        = "Possession lost /90"
+)
+LOWER_IS_BETTER <- c("possessionLost_per90")
+METRIC_GROUPS <- c(
+  rating = "Overall",
+  tackles_per90 = "Defending", interceptions_per90 = "Defending",
+  clearances_per90 = "Defending", ballRecovery_per90 = "Defending",
+  blockedShots_per90 = "Defending",
+  aerialDuelsWon_per90 = "Duels", aerialDuelsWonPercentage = "Duels",
+  totalDuelsWonPercentage = "Duels",
+  accuratePasses_per90 = "On the ball", accuratePassesPercentage = "On the ball",
+  accurateLongBalls_per90 = "On the ball", possessionLost_per90 = "On the ball"
+)
+GROUP_ORDER <- c("Overall", "Defending", "Duels", "On the ball")
+
 # ---- pitch drawing ----------------------------------------------------------
 # Sofascore points live in a 0-100 x 0-100 space (Opta convention, attacking
 # left to right). Drawn with plain annotations - no extra package needed.
