@@ -58,20 +58,26 @@ data/raw/                       CSV output (gitignored; re-creatable)
 pip install -r requirements.txt          # curl_cffi + requests
 python scraping/01_scrape_player.py
 python scraping/02_scrape_heatmaps.py    # run after 01 (uses its seasons list)
-python scraping/03_scrape_peer_pool.py   # ~130 requests, a few minutes
-python scraping/04_build_pool.py         # join/filter + CB tagging (~5 min)
+python scraping/03_scrape_peer_pool.py   # ~160 requests, ~5 minutes
+python scraping/04_build_pool.py         # join/filter + CB tagging
 Rscript R/comparisons.R                  # needs R with ggplot2 etc. (auto-installs)
 python tests/test_parsing.py             # offline sanity check, no network
 ```
 
-The comparison pool is every **Big-5 defender under 23** (age at 2026-06-30)
-with 600+ league minutes; `04` additionally tags centre-backs via each
-player's characteristics endpoint (the only place Sofascore separates CB
-from full-back — the leaderboard just says "D"). The R script prefers the
-CB-tagged pool and falls back to all young defenders if tagging came back
-thin. Cutoffs live in `scraping/sofascore.py` (`AGE_MAX`, `MIN_MINUTES`,
-`REFERENCE_DATE`); changing them only requires re-running `04` and the R
-script — never a re-scrape.
+**Both of Ahanor's seasons are in scope** (24/25 Genoa + 25/26 Atalanta —
+`SEASONS` in `sofascore.py`): his stats and season heatmaps cover every
+season Sofascore has for him, per-match heatmaps go back to July 2024, and
+the peer pool is scraped per season. The pool is every **Big-5 defender
+under 23** (age measured at each season's own end, so both seasons compare
+like-for-like) with 600+ league minutes; Ahanor's own rows always survive
+the filters. `04` additionally tags centre-backs via each player's
+characteristics endpoint (the only place Sofascore separates CB from
+full-back — the leaderboard just says "D"). The R script computes
+percentiles within each season's own pool, charts both seasons side by
+side, and prefers the CB-tagged pool, falling back to all young defenders
+if tagging came back thin. Cutoffs live in `scraping/sofascore.py`
+(`AGE_MAX`, `MIN_MINUTES`, `SEASONS`); changing them only requires
+re-running `04` and the R script — never a re-scrape.
 
 Scripts skip any output already in `data/raw/` — scrape once, work from
 disk. Force a re-scrape with `FORCE_REFRESH=1` before the command (PowerShell:

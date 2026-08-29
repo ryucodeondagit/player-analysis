@@ -1,10 +1,12 @@
 """Join the Big-5 raw data into the analysis-ready comparison pool.
 
 Steps:
-  1. join peer_stats.csv (season stats) with squads.csv (birth dates) on
-     player_id
-  2. compute age at REFERENCE_DATE and per-90 versions of the count stats
-  3. filter: defenders, age < AGE_MAX, minutes >= MIN_MINUTES
+  1. join peer_stats.csv (per-season stats) with squads.csv (birth dates)
+     on player_id
+  2. compute age at each row's own season end (SEASONS) and per-90 versions
+     of the count stats
+  3. filter: defenders, age < AGE_MAX at that season's end, minutes >=
+     MIN_MINUTES (Ahanor's own rows are always kept)
   4. enrich: fetch each pool player's detailed positions (the one endpoint
      that knows CB vs full-back; the leaderboard only says 'D') -> is_cb
      column. Best-effort: if the endpoint misbehaves, is_cb stays empty and
@@ -28,7 +30,7 @@ from sofascore import (
     DATA_RAW,
     MIN_MINUTES,
     PLAYER_ID,
-    REFERENCE_DATE,
+    SEASONS,
     SofascoreClient,
     output_exists,
     parse_characteristics,
@@ -66,17 +68,26 @@ def build_pool() -> list[dict]:
 
     pool = []
     for row in stats:
+        # age is measured against the END of the row's own season, so the
+        # 24/25 pool is "U23 as of June 2025" and 25/26 "U23 as of June 2026"
+        reference = SEASONS.get(row.get("season"))
+        if reference is None:
+            continue
         bio = squads.get(row["player_id"])
         if not bio or not bio.get("birth_date"):
             continue
         birth = date.fromisoformat(bio["birth_date"])
-        age = (REFERENCE_DATE - birth).days / 365.25
+        age = (reference - birth).days / 365.25
 
+        # Ahanor's own rows always survive - the R side needs him in every
+        # season even where he misses a filter (e.g. minutes in 24/25)
+        is_subject = row["player_id"] == str(PLAYER_ID)
         minutes = to_float(row.get("minutesPlayed"))
-        if row.get("position") != "D":
-            continue
-        if age >= AGE_MAX or not minutes or minutes < MIN_MINUTES:
-            continue
+        if not is_subject:
+            if row.get("position") != "D":
+                continue
+            if age >= AGE_MAX or not minutes or minutes < MIN_MINUTES:
+                continue
 
         merged = {
             **row,
@@ -88,7 +99,8 @@ def build_pool() -> list[dict]:
         for field in PER90_FIELDS:
             value = to_float(row.get(field))
             merged[f"{field}_per90"] = (
-                round(value / minutes * 90, 3) if value is not None else None
+                round(value / minutes * 90, 3)
+                if value is not None and minutes else None
             )
         pool.append(merged)
     return pool
@@ -140,10 +152,12 @@ def main() -> None:
     if not pool:
         raise SystemExit("Empty pool - check peer_stats.csv/squads.csv and filters")
 
-    if not any(p["player_id"] == str(PLAYER_ID) for p in pool):
-        print("NOTE: Ahanor is not in the filtered pool (minutes below "
-              f"{MIN_MINUTES}? position tag not 'D'?) - check his row in "
-              "peer_stats.csv; the R side expects him present.")
+    for season in SEASONS:
+        if not any(p["player_id"] == str(PLAYER_ID) and p.get("season") == season
+                   for p in pool):
+            print(f"NOTE: Ahanor has no {season} row (not ranked on that "
+                  "season's leaderboard?) - the R charts will show that "
+                  "season without him.")
 
     enrich_positions(pool)
     n_cb = sum(1 for p in pool if p["is_cb"] == "True")

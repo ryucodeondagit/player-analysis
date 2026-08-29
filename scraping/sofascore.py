@@ -52,7 +52,14 @@ BASE_URLS = [
 PLAYER_ID = 1634980  # https://www.sofascore.com/football/player/honest-ahanor/1634980
 PLAYER_NAME = "Honest Ahanor"
 SERIE_A_ID = 23           # Sofascore uniqueTournament id for Serie A
-SEASON_NAME = "25/26"     # season label as Sofascore prints it (his Atalanta season)
+
+# Seasons in scope, labeled as Sofascore prints them, each mapped to the
+# reference date used for the age filter (that season's end) - so "U23" means
+# U23 as of the season being compared, in both seasons.
+SEASONS = {
+    "24/25": date(2025, 6, 30),  # Genoa breakout
+    "25/26": date(2026, 6, 30),  # first Atalanta season
+}
 
 # The Big 5 leagues by Sofascore uniqueTournament id. The peer-pool scraper
 # loops these; slugs name the per-league cache files. If a scrape prints an
@@ -65,11 +72,10 @@ BIG5_LEAGUES = {
     "ligue-1": 34,
 }
 
-# Age filter for the comparison pool: "under 23" as of the season's end.
-REFERENCE_DATE = date(2026, 6, 30)
-AGE_MAX = 23              # keep players with age < AGE_MAX at REFERENCE_DATE
+# Age filter for the comparison pool: "under 23" as of each season's end.
+AGE_MAX = 23              # keep players with age < AGE_MAX at that reference
 MIN_MINUTES = 600         # pool entry requires this many league minutes
-CUTOFF_DATE = date(2025, 8, 1)  # ignore matches before this (widen for Genoa era)
+CUTOFF_DATE = date(2024, 7, 1)  # match-data horizon: start of the 24/25 season
 
 DATA_RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
 

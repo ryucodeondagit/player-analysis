@@ -1,19 +1,20 @@
 """Build the raw comparison pool: player stats + birth dates for ALL Big-5 leagues.
 
-For each of the five leagues (see BIG5_LEAGUES in sofascore.py):
+For each league (BIG5_LEAGUES) and each season in scope (SEASONS - currently
+24/25 and 25/26):
   * the season leaderboard - stats for every ranked player, all positions
     (position/age filtering happens later, so changing cutoffs never
     triggers a re-scrape)
-  * every squad in the league - birth dates, coarse positions, heights
+and once per league:
+  * the squad lists - birth dates, coarse positions, heights
 
 Outputs (data/raw/):
-  peer_stats_<league>.csv / squads_<league>.csv   per-league caches, so an
-                                                  interrupted run resumes at
-                                                  the next league
-  peer_stats.csv / squads.csv                     all leagues combined, with
-                                                  a `league` column
+  peer_stats_<league>_<season>.csv / squads_<league>.csv   per-league caches,
+                                       so an interrupted run resumes where
+                                       it stopped
+  peer_stats.csv / squads.csv          combined, with league/season columns
 
-Roughly 130 requests total (~4 minutes at the built-in throttle).
+Roughly 160 requests total (~5 minutes at the built-in throttle).
 
 Run:  python scraping/03_scrape_peer_pool.py
 """
@@ -23,7 +24,7 @@ import csv
 from sofascore import (
     BIG5_LEAGUES,
     DATA_RAW,
-    SEASON_NAME,
+    SEASONS,
     SofascoreClient,
     output_exists,
     parse_leaderboard_page,
@@ -55,16 +56,17 @@ PAGE_SIZE = 100
 MAX_PAGES = 20  # safety stop; a 20-team league has < 700 ranked players
 
 
-def find_season_id(client: SofascoreClient, league_id: int, league: str) -> int:
-    """The league's season id for SEASON_NAME (e.g. '25/26')."""
+def find_season_id(client: SofascoreClient, league_id: int, league: str,
+                   season_name: str) -> int:
+    """The league's season id for season_name (e.g. '25/26')."""
     body = client.get("unique-tournament", league_id, "seasons")
     for season in (body or {}).get("seasons", []):
-        if season.get("year") == SEASON_NAME:
+        if season.get("year") == season_name:
             return season["id"]
     available = [s.get("year") for s in (body or {}).get("seasons", [])][:8]
     raise SystemExit(
-        f"Season {SEASON_NAME!r} not found for {league}; Sofascore lists "
-        f"{available}. Adjust SEASON_NAME in sofascore.py"
+        f"Season {season_name!r} not found for {league}; Sofascore lists "
+        f"{available}. Adjust SEASONS in sofascore.py"
     )
 
 
@@ -132,29 +134,39 @@ def combine(per_league_files: list[str], out: str) -> None:
 def main() -> None:
     client = SofascoreClient()
 
-    stats_files, squad_files = [], []
-    for league, league_id in BIG5_LEAGUES.items():
-        stats_file = f"peer_stats_{league}.csv"
-        squad_file = f"squads_{league}.csv"
-        stats_files.append(stats_file)
-        squad_files.append(squad_file)
-
-        if output_exists(stats_file) and output_exists(squad_file):
-            continue
-        season_id = find_season_id(client, league_id, league)
-        print(f"{league} {SEASON_NAME} -> season id {season_id}")
-
-        if not output_exists(stats_file):
+    # leaderboard stats: one file per (league, season)
+    stats_files = []
+    for season_name in SEASONS:
+        season_slug = season_name.replace("/", "-")
+        for league, league_id in BIG5_LEAGUES.items():
+            stats_file = f"peer_stats_{league}_{season_slug}.csv"
+            stats_files.append(stats_file)
+            if output_exists(stats_file):
+                continue
+            season_id = find_season_id(client, league_id, league, season_name)
+            print(f"{league} {season_name} -> season id {season_id}")
             rows = fetch_leaderboard(client, league_id, season_id)
             for row in rows:
                 row["league"] = league
+                row["season"] = season_name
             write_csv(rows, stats_file)
 
-        if not output_exists(squad_file):
-            rows = fetch_squads(client, league_id, season_id)
-            for row in rows:
-                row["league"] = league
-            write_csv(rows, squad_file)
+    # squads: once per league. Sofascore's squad endpoint is the CURRENT
+    # roster (not season-versioned) - we only join birth dates from it,
+    # which don't change. Players who left the Big 5 since 24/25 lack a
+    # squad row and simply drop out of that season's pool.
+    squad_files = []
+    for league, league_id in BIG5_LEAGUES.items():
+        squad_file = f"squads_{league}.csv"
+        squad_files.append(squad_file)
+        if output_exists(squad_file):
+            continue
+        season_id = find_season_id(client, league_id, league,
+                                   list(SEASONS)[-1])
+        rows = fetch_squads(client, league_id, season_id)
+        for row in rows:
+            row["league"] = league
+        write_csv(rows, squad_file)
 
     combine(stats_files, "peer_stats.csv")
     combine(squad_files, "squads.csv")

@@ -100,14 +100,15 @@ metrics_bar <- metrics
 inverted <- names(metrics_bar) %in% LOWER_IS_BETTER
 metrics_bar[inverted] <- paste0(metrics_bar[inverted], " (inverted)")
 
-season_label <- "Serie A + Big-5 peers, 2025-26"
+CURRENT_SEASON <- "25/26"   # season shown in the distributions chart
 caption_pct <- paste0("Data: Sofascore | pool: ", pool_label,
-                      ", min. 600 league minutes | percentiles: higher = better")
+                      ", min. 600 league minutes, U23 at each season's end | ",
+                      "percentiles: higher = better")
 caption_raw <- paste0("Data: Sofascore | raw per-90 / % values | pool: ",
                       pool_label, ", min. 600 league minutes")
 
 long <- pool |>
-  select(player_id, player_name, league, all_of(names(metrics))) |>
+  select(player_id, player_name, league, season, all_of(names(metrics))) |>
   pivot_longer(all_of(names(metrics)), names_to = "metric", values_to = "value") |>
   mutate(
     value = suppressWarnings(as.numeric(value)),
@@ -117,9 +118,11 @@ long <- pool |>
   ) |>
   filter(!is.na(value))
 
-# ---- chart 1: percentile bars ----------------------------------------------
+# ---- chart 1: percentile bars, one bar per season ---------------------------
+# Percentiles are computed WITHIN each season's own pool, so 24/25 and 25/26
+# are each a fair like-for-like comparison.
 percentiles <- long |>
-  group_by(metric, label_bar) |>
+  group_by(season, metric, label_bar) |>
   summarise(
     pct = 100 * mean(value <= value[player_id == PLAYER_ID][1], na.rm = TRUE),
     n = n(),
@@ -128,26 +131,44 @@ percentiles <- long |>
   filter(!is.na(pct)) |>
   mutate(pct = ifelse(metric %in% LOWER_IS_BETTER, 100 - pct, pct))
 
-p1 <- ggplot(percentiles, aes(x = pct, y = label_bar)) +
-  geom_col(fill = COL_ACCENT, width = 0.55) +
-  geom_text(aes(label = round(pct)), hjust = -0.4, size = 3.2, colour = COL_TEXT) +
+pool_sizes <- percentiles |>
+  group_by(season) |>
+  summarise(n = max(n), .groups = "drop")
+subtitle_pct <- paste0(
+  pool_label, " | pool size: ",
+  paste0(pool_sizes$n, " (", pool_sizes$season, ")", collapse = ", ")
+)
+
+# current season carries the accent; the previous season is gray context
+season_cols <- setNames(c(COL_POOL, COL_ACCENT),
+                        c(setdiff(unique(percentiles$season), CURRENT_SEASON)[1],
+                          CURRENT_SEASON))
+
+p1 <- ggplot(percentiles,
+             aes(x = pct, y = label_bar, fill = season, group = season)) +
+  geom_col(width = 0.65, position = position_dodge(width = 0.72)) +
+  geom_text(aes(label = round(pct)),
+            position = position_dodge(width = 0.72),
+            hjust = -0.4, size = 2.9, colour = COL_TEXT) +
+  scale_fill_manual(values = season_cols, na.value = COL_GRID) +
   scale_x_continuous(limits = c(0, 108), breaks = c(0, 25, 50, 75, 100),
                      expand = expansion(mult = c(0, 0))) +
   labs(
-    title = "Honest Ahanor - percentile vs age-group peers",
-    subtitle = paste0(pool_label, " (n = ", max(percentiles$n), ") | ", season_label),
+    title = "Ahanor vs U23 peers - percentile by season",
+    subtitle = subtitle_pct,
     x = "percentile", y = NULL, caption = caption_pct
   ) +
   theme_pitchside() +
   theme(panel.grid.major.y = element_blank())
 
 dir.create("figures", showWarnings = FALSE)
-ggsave("figures/percentiles.png", p1, width = 8, height = 6, dpi = 150,
+ggsave("figures/percentiles.png", p1, width = 8, height = 9, dpi = 150,
        bg = COL_SURFACE)
 message("saved figures/percentiles.png")
 
-# ---- chart 2: pool distributions with Ahanor marked -------------------------
+# ---- chart 2: pool distributions with Ahanor marked (current season) --------
 long <- long |>
+  filter(season == CURRENT_SEASON) |>
   mutate(who = ifelse(player_id == PLAYER_ID, "Honest Ahanor", pool_label))
 
 p2 <- ggplot() +
@@ -168,7 +189,7 @@ p2 <- ggplot() +
   guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
   labs(
     title = "Where Ahanor sits in each distribution",
-    subtitle = paste0(pool_label, " | ", season_label),
+    subtitle = paste0(pool_label, " | ", CURRENT_SEASON, " season"),
     x = NULL, y = NULL, caption = caption_raw
   ) +
   theme_pitchside() +
