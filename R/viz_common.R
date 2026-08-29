@@ -3,7 +3,8 @@
 # and the football pitch drawing (Opta/Sofascore 0-100 x 0-100 space).
 # Sourced by comparisons.R and heatmaps.R - not run directly.
 
-required <- c("readr", "dplyr", "tidyr", "ggplot2", "scales", "ggrepel")
+required <- c("readr", "dplyr", "tidyr", "ggplot2", "scales", "ggrepel",
+              "systemfonts", "ragg")
 to_install <- setdiff(required, rownames(installed.packages()))
 # explicit repos: non-interactive Rscript has no CRAN mirror configured
 if (length(to_install) > 0) {
@@ -15,6 +16,36 @@ library(ggplot2)
 
 PLAYER_ID <- 1634980
 CURRENT_SEASON <- "25/26"
+
+# Footer credit on every figure - put your name/handle here (or leave "").
+AUTHOR <- ""
+
+# ---- typography --------------------------------------------------------------
+# First installed font from this list wins; "" falls back to the device sans.
+# Add your favourite to the front (e.g. "Inter" if you've installed it).
+pick_font <- function(candidates = c("Inter", "Roboto Condensed", "Roboto",
+                                     "Segoe UI", "Helvetica Neue")) {
+  installed <- tryCatch(unique(systemfonts::system_fonts()$family),
+                        error = function(e) character())
+  hit <- candidates[candidates %in% installed]
+  if (length(hit) > 0) hit[1] else ""
+}
+FONT <- pick_font()
+
+# one consistent source line for every chart
+chart_footer <- function(note = NULL) {
+  parts <- c(note, "Data: Sofascore", format(Sys.Date(), "%b %Y"),
+             if (nzchar(AUTHOR)) AUTHOR)
+  paste(parts, collapse = "  ·  ")
+}
+
+# high-res export through ragg (crisper text than the default device)
+save_fig <- function(filename, plot, width, height) {
+  dir.create("figures", showWarnings = FALSE)
+  ggsave(filename, plot, width = width, height = height, dpi = 300,
+         bg = COL_SURFACE, device = ragg::agg_png)
+  message("saved ", filename)
+}
 
 # ---- design tokens (light surface; accent validated 3:1+) -------------------
 COL_SURFACE <- "#fcfcfb"
@@ -29,20 +60,31 @@ COL_SEQ_LO  <- "#cde2fb"
 COL_SEQ_HI  <- "#0d366b"
 
 theme_pitchside <- function() {
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 12, base_family = FONT) +
     theme(
       plot.background = element_rect(fill = COL_SURFACE, colour = NA),
       panel.background = element_rect(fill = COL_SURFACE, colour = NA),
       panel.grid.minor = element_blank(),
       panel.grid.major = element_line(colour = COL_GRID, linewidth = 0.4),
       text = element_text(colour = COL_TEXT),
-      axis.text = element_text(colour = COL_TEXT_2),
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(colour = COL_TEXT_2, size = 10),
-      plot.caption = element_text(colour = COL_TEXT_2, size = 8),
-      strip.text = element_text(colour = COL_TEXT_2, size = 9),
+      axis.text = element_text(colour = COL_TEXT_2, size = 9),
+      axis.title = element_text(colour = COL_TEXT_2, size = 10),
+      # editorial layout: title block aligned to the plot edge, not the panel
+      plot.title.position = "plot",
+      plot.caption.position = "plot",
+      plot.title = element_text(face = "bold", size = 17,
+                                margin = margin(b = 4)),
+      plot.subtitle = element_text(colour = COL_TEXT_2, size = 10.5,
+                                   margin = margin(b = 14)),
+      plot.caption = element_text(colour = COL_TEXT_2, size = 8, hjust = 1,
+                                  margin = margin(t = 14)),
+      plot.margin = margin(18, 22, 14, 22),
+      strip.text = element_text(colour = COL_TEXT_2, size = 9.5,
+                                face = "bold"),
       legend.position = "top",
-      legend.title = element_blank()
+      legend.justification = "left",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 9.5)
     )
 }
 

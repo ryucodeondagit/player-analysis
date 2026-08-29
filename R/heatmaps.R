@@ -14,7 +14,11 @@
 
 source("R/viz_common.R")
 
-CAPTION <- "Data: Sofascore | 0-100 pitch space, attacking left to right"
+# ---- titles: edit freely, nothing else depends on the wording ---------------
+TITLE_SEASONS   <- "Genoa to Bergamo"
+TITLE_FOOTPRINT <- "The 2025-26 Footprint"
+
+CAPTION <- chart_footer("Sofascore 0-100 pitch coordinates")
 
 # density surface: sequential blue, fading to transparent at the low end so
 # the pitch shows through outside his active zones
@@ -34,7 +38,13 @@ pitch_plot <- function(points, title, subtitle) {
   ggplot(points) +
     heat_layers() +
     pitch_layers() +
-    coord_fixed(ratio = 68 / 105, xlim = c(0, 100), ylim = c(0, 100),
+    # direction-of-attack arrow in the strip below the pitch
+    annotate("segment", x = 42, xend = 58, y = -5, yend = -5,
+             colour = COL_TEXT_2, linewidth = 0.5,
+             arrow = arrow(length = unit(5, "pt"), type = "closed")) +
+    annotate("text", x = 60.5, y = -5, label = "Attack", hjust = 0,
+             size = 2.9, colour = COL_TEXT_2, family = FONT) +
+    coord_fixed(ratio = 68 / 105, xlim = c(0, 100), ylim = c(-9, 100),
                 expand = FALSE) +
     labs(title = title, subtitle = subtitle, caption = CAPTION) +
     theme_pitch()
@@ -54,14 +64,12 @@ if (nrow(seasons) == 0) stop("no Serie A rows in season_heatmaps.csv")
 
 p1 <- pitch_plot(
   seasons,
-  "Honest Ahanor - where he plays",
-  "Serie A season heatmaps | left-sided defender, attacking left to right"
+  TITLE_SEASONS,
+  "Honest Ahanor's Serie A heatmaps, season by season"
 ) +
   facet_wrap(~season_label, ncol = 2)
 
-ggsave("figures/heatmap_seasons.png", p1, width = 11, height = 5, dpi = 150,
-       bg = COL_SURFACE)
-message("saved figures/heatmap_seasons.png")
+save_fig("figures/heatmap_seasons.png", p1, width = 11, height = 5.4)
 
 # ---- 2. 25/26 all competitions, from per-match points -----------------------
 matches <- readr::read_csv("data/raw/heatmap_points.csv", show_col_types = FALSE) |>
@@ -72,12 +80,11 @@ if (nrow(matches) > 0) {
   n_matches <- length(unique(matches$event_id))
   p2 <- pitch_plot(
     matches,
-    "Honest Ahanor - 2025-26, all competitions",
-    paste0("Aggregated from ", n_matches, " matches (league + cups)")
+    TITLE_FOOTPRINT,
+    paste0("Honest Ahanor, all competitions - aggregated from ",
+           n_matches, " matches")
   )
-  ggsave("figures/heatmap_2526_all.png", p2, width = 8, height = 6, dpi = 150,
-         bg = COL_SURFACE)
-  message("saved figures/heatmap_2526_all.png")
+  save_fig("figures/heatmap_2526_all.png", p2, width = 8, height = 6.4)
 } else {
   message("no 25/26 rows in heatmap_points.csv - skipped all-competitions map")
 }
