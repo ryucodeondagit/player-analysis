@@ -86,11 +86,13 @@ subtitle <- paste0(
   paste(sort(unique(cbs_in_pool$player_name)), collapse = ", ")
 )
 
+# dark rendition: the club's CBs wear blue (Chelsea's own colour), Ahanor
+# the orange counter-accent - a validated pair on the dark surface
 p <- ggplot() +
-  geom_vline(xintercept = 50, colour = COL_GRID, linewidth = 0.6) +
+  geom_vline(xintercept = 50, colour = DK_GRID, linewidth = 0.6) +
   geom_segment(
     data = band, aes(x = lo, xend = hi, y = label, yend = label),
-    colour = COL_ACCENT2, alpha = 0.3, linewidth = 3.5, lineend = "round"
+    colour = DK_ACCENT, alpha = 0.28, linewidth = 3.5, lineend = "round"
   ) +
   geom_point(
     data = filter(plot_df, role == club_role),
@@ -101,7 +103,7 @@ p <- ggplot() +
     aes(x = pct, y = label, colour = role), size = 3.6
   ) +
   scale_colour_manual(values = setNames(
-    c(COL_ACCENT, COL_ACCENT2), c("Honest Ahanor", club_role)
+    c(DK_ACCENT2, DK_ACCENT), c("Honest Ahanor", club_role)
   )) +
   scale_x_continuous(limits = c(0, 100), breaks = c(0, 25, 50, 75, 100)) +
   facet_grid(rows = vars(group), scales = "free_y", space = "free_y",
@@ -111,7 +113,7 @@ p <- ggplot() +
     title = TITLE_CLUB, subtitle = subtitle,
     x = "Percentile", y = NULL, caption = caption
   ) +
-  theme_pitchside() +
+  theme_pitchside_dark() +
   theme(
     panel.grid.major.y = element_blank(),
     strip.placement = "outside",
@@ -119,4 +121,5 @@ p <- ggplot() +
     panel.spacing.y = unit(14, "pt")
   )
 
-save_fig("figures/club_comparison.png", p, width = 9, height = 8)
+save_fig("figures/club_comparison.png", p, width = 9, height = 8,
+         bg = DK_SURFACE)

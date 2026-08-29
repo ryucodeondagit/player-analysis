@@ -40,10 +40,10 @@ chart_footer <- function(note = NULL) {
 }
 
 # high-res export through ragg (crisper text than the default device)
-save_fig <- function(filename, plot, width, height) {
+save_fig <- function(filename, plot, width, height, bg = COL_SURFACE) {
   dir.create("figures", showWarnings = FALSE)
   ggsave(filename, plot, width = width, height = height, dpi = 300,
-         bg = COL_SURFACE, device = ragg::agg_png)
+         bg = bg, device = ragg::agg_png)
   message("saved ", filename)
 }
 
@@ -58,6 +58,14 @@ COL_POOL    <- "#8f8d84"  # neutral context marks
 # sequential blue ramp endpoints (magnitude encoding, one hue light->dark)
 COL_SEQ_LO  <- "#cde2fb"
 COL_SEQ_HI  <- "#0d366b"
+
+# ---- dark-surface tokens (validated against this surface, not a hue flip) ---
+DK_SURFACE <- "#1a1a19"
+DK_TEXT    <- "#ffffff"
+DK_TEXT_2  <- "#c3c2b7"
+DK_GRID    <- "#383835"
+DK_ACCENT  <- "#3987e5"  # categorical slot 1, dark step
+DK_ACCENT2 <- "#d95926"  # categorical slot 2, dark step
 
 theme_pitchside <- function() {
   theme_minimal(base_size = 12, base_family = FONT) +
@@ -85,6 +93,26 @@ theme_pitchside <- function() {
       legend.justification = "left",
       legend.title = element_blank(),
       legend.text = element_text(size = 9.5)
+    )
+}
+
+theme_pitchside_dark <- function() {
+  theme_pitchside() +
+    theme(
+      plot.background = element_rect(fill = DK_SURFACE, colour = NA),
+      panel.background = element_rect(fill = DK_SURFACE, colour = NA),
+      panel.grid.major = element_line(colour = DK_GRID, linewidth = 0.4),
+      text = element_text(colour = DK_TEXT),
+      axis.text = element_text(colour = DK_TEXT_2),
+      axis.title = element_text(colour = DK_TEXT_2),
+      plot.title = element_text(colour = DK_TEXT, face = "bold", size = 17,
+                                margin = margin(b = 4)),
+      plot.subtitle = element_text(colour = DK_TEXT_2, size = 10.5,
+                                   margin = margin(b = 14)),
+      plot.caption = element_text(colour = DK_TEXT_2, size = 8, hjust = 1,
+                                  margin = margin(t = 14)),
+      strip.text = element_text(colour = DK_TEXT_2, size = 9.5, face = "bold"),
+      legend.text = element_text(colour = DK_TEXT, size = 9.5)
     )
 }
 
