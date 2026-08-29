@@ -7,11 +7,19 @@
 # httr2, jsonlite: raw JSON endpoint calls (Sofascore)
 # dplyr, purrr, tidyr, readr: data wrangling + IO
 required_pkgs <- c(
-  "worldfootballR", "httr2", "jsonlite",
+  "httr2", "jsonlite",
   "dplyr", "purrr", "tidyr", "readr", "tibble"
 )
 to_install <- setdiff(required_pkgs, rownames(installed.packages()))
 if (length(to_install) > 0) install.packages(to_install)
+
+# worldfootballR comes from GitHub, not CRAN: the CRAN build is stale and the
+# fixes that matter (FBref request headers, load_* data paths) live on the
+# dev version.
+if (!requireNamespace("worldfootballR", quietly = TRUE)) {
+  if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
+  remotes::install_github("JaseZiv/worldfootballR")
+}
 
 library(dplyr)
 library(purrr)
@@ -20,6 +28,7 @@ library(purrr)
 PLAYER_NAME <- "Honest Ahanor"
 
 # FBref player id 42ff58c3 -> https://fbref.com/en/players/42ff58c3/Honest-Ahanor
+FBREF_PLAYER_ID  <- "42ff58c3"
 FBREF_PLAYER_URL <- "https://fbref.com/en/players/42ff58c3/Honest-Ahanor"
 
 # Sofascore ids. The player id is visible in his profile URL:
