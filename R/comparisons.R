@@ -13,7 +13,10 @@
 
 required <- c("readr", "dplyr", "tidyr", "ggplot2", "scales")
 to_install <- setdiff(required, rownames(installed.packages()))
-if (length(to_install) > 0) install.packages(to_install)
+# explicit repos: non-interactive Rscript has no CRAN mirror configured
+if (length(to_install) > 0) {
+  install.packages(to_install, repos = "https://cloud.r-project.org")
+}
 library(dplyr)
 library(tidyr)
 library(ggplot2)
