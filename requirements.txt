@@ -1,1 +1,5 @@
+# curl_cffi impersonates a real Chrome TLS fingerprint - required, because
+# Sofascore's bot protection 403s Python's default TLS handshake.
+curl_cffi>=0.7
+# fallback HTTP stack + transitive convenience; the client prefers curl_cffi
 requests>=2.31

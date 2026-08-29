@@ -21,6 +21,19 @@ for a personal project at this volume, keep the built-in throttle), and
 endpoint shapes can drift, which is why all response parsing lives in small
 pure functions in `scraping/sofascore.py` with offline tests.
 
+### Troubleshooting: HTTP 403 from Sofascore
+
+Sofascore's bot protection fingerprints the TLS handshake itself, so plain
+Python `requests` gets 403 regardless of headers. The client therefore uses
+**curl_cffi** (impersonates a real Chrome fingerprint) — installed via
+`requirements.txt` — and falls back across both API hosts
+(`api.sofascore.com`, then `www.sofascore.com/api`). If you still see 403s:
+confirm the venv is active and `pip show curl_cffi` finds it (the client
+prints a warning at startup when it's missing); try again later (temporary
+IP-level blocks happen); and if it's persistent, Sofascore has tightened
+things again — the next escalation is driving a real browser (Playwright)
+to fetch the same JSON URLs.
+
 ## Layout
 
 ```

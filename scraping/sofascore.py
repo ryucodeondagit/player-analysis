@@ -19,9 +19,34 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import requests
+# Sofascore's bot protection fingerprints the TLS handshake, and Python's
+# `requests` has a recognizable non-browser fingerprint - plain requests get
+# HTTP 403 no matter what headers they send. curl_cffi impersonates a real
+# Chrome fingerprint and is a near drop-in replacement, so it's the primary
+# HTTP stack; plain requests stays as a fallback so the module still imports
+# (and offline tests still run) without it.
+try:
+    from curl_cffi import requests
 
-BASE_URL = "https://api.sofascore.com/api/v1"
+    HAS_CURL_CFFI = True
+except ImportError:
+    import requests
+
+    HAS_CURL_CFFI = False
+
+# curl_cffi calls its base network exception RequestsError; requests calls it
+# RequestException. Resolve whichever the imported stack provides.
+NETWORK_ERROR = getattr(
+    requests, "RequestsError", getattr(requests, "RequestException", Exception)
+)
+
+# Tried in order; a 403 on one host falls through to the next. Both serve the
+# same API - api.sofascore.com is the classic host, www.sofascore.com/api is
+# what the website frontend itself calls these days.
+BASE_URLS = [
+    "https://api.sofascore.com/api/v1",
+    "https://www.sofascore.com/api/v1",
+]
 
 # ---- constants ---------------------------------------------------------------
 PLAYER_ID = 1634980  # https://www.sofascore.com/football/player/honest-ahanor/1634980
@@ -38,52 +63,73 @@ FORCE_REFRESH = os.environ.get("FORCE_REFRESH") == "1"
 
 MIN_REQUEST_INTERVAL = 1.5  # seconds between requests (~40/min max). Keep it.
 
+# UA matches the Chrome fingerprint curl_cffi impersonates. Referer makes the
+# request look like it came from a sofascore.com page, as the real ones do.
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) "
-        "Gecko/20100101 Firefox/132.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json",
+    "Referer": "https://www.sofascore.com/",
 }
 
 
 class SofascoreClient:
-    """Thin requests wrapper: throttling, retries, one place for headers."""
+    """Thin HTTP wrapper: throttling, retries, host fallback, one place for headers."""
 
     def __init__(self) -> None:
-        self.session = requests.Session()
+        if HAS_CURL_CFFI:
+            self.session = requests.Session(impersonate="chrome")
+        else:
+            print(
+                "WARNING: curl_cffi not installed - falling back to plain "
+                "requests, which Sofascore usually rejects with HTTP 403. "
+                "Run: pip install -r requirements.txt"
+            )
+            self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self._last_request = 0.0
 
     def get(self, *path, params: dict | None = None, ok404: bool = False):
-        """GET /api/v1/<path parts joined by />. Returns parsed JSON.
+        """GET <base>/<path parts joined by />. Returns parsed JSON.
 
         ok404=True returns None on a 404 instead of raising - Sofascore uses
         404 for "no data here" (e.g. no heatmap for an unused sub), which is
         an answer, not an error. Retries transient failures (429/5xx/network)
-        with exponential backoff.
+        with exponential backoff; a 403 falls through to the next base host.
         """
-        url = f"{BASE_URL}/" + "/".join(str(p) for p in path)
-        for attempt in range(4):
-            self._throttle()
-            try:
-                resp = self.session.get(url, params=params, timeout=30)
-            except requests.RequestException as exc:
-                if attempt == 3:
-                    raise
-                print(f"  network error ({exc}), retrying...")
-                time.sleep(2**attempt)
-                continue
-            if resp.status_code == 404 and ok404:
-                return None
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt < 3:
-                wait = 2 ** (attempt + 1)
-                print(f"  HTTP {resp.status_code}, backing off {wait}s...")
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            return resp.json()
-        raise RuntimeError("unreachable")
+        suffix = "/".join(str(p) for p in path)
+        for base in BASE_URLS:
+            url = f"{base}/{suffix}"
+            for attempt in range(4):
+                self._throttle()
+                try:
+                    resp = self.session.get(url, params=params, timeout=30)
+                except NETWORK_ERROR as exc:
+                    if attempt == 3:
+                        raise
+                    print(f"  network error ({exc}), retrying...")
+                    time.sleep(2**attempt)
+                    continue
+                if resp.status_code == 404 and ok404:
+                    return None
+                if resp.status_code == 403:
+                    print(f"  HTTP 403 from {base}, trying next host...")
+                    break  # next base URL
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < 3:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  HTTP {resp.status_code}, backing off {wait}s...")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+        raise RuntimeError(
+            f"HTTP 403 from every Sofascore host for /{suffix} "
+            f"(curl_cffi active: {HAS_CURL_CFFI}). If curl_cffi is active, "
+            "Sofascore has likely tightened its bot protection again - "
+            "see the README troubleshooting section."
+        )
 
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request
