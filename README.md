@@ -46,8 +46,12 @@ scraping/03_scrape_peer_pool.py ALL Big-5 leagues: leaderboard stats +
                                 squad birth dates (per-league caches)
 scraping/04_build_pool.py       join + filter -> pool_u23_defenders.csv
                                 (U23, 600+ min, per-90s, is_cb tag)
-R/comparisons.R                 percentile bars + pool distributions
-                                -> figures/*.png
+R/viz_common.R                  shared: packages, design tokens, theme,
+                                pitch drawing (sourced, not run)
+R/comparisons.R                 percentile bars, pool distributions,
+                                tackles-vs-interceptions scatter
+R/heatmaps.R                    pitch heatmaps: Serie A seasons side by
+                                side + 25/26 all competitions
 tests/test_parsing.py           offline tests (mock JSON, no network)
 data/raw/                       CSV output (gitignored; re-creatable)
 ```
@@ -61,6 +65,7 @@ python scraping/02_scrape_heatmaps.py    # run after 01 (uses its seasons list)
 python scraping/03_scrape_peer_pool.py   # ~160 requests, ~5 minutes
 python scraping/04_build_pool.py         # join/filter + CB tagging
 Rscript R/comparisons.R                  # needs R with ggplot2 etc. (auto-installs)
+Rscript R/heatmaps.R                     # pitch heatmaps -> figures/
 python tests/test_parsing.py             # offline sanity check, no network
 ```
 

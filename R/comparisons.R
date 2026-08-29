@@ -11,27 +11,10 @@
 # too thin (Sofascore's characteristics endpoint is best-effort), fall back to
 # all U23 defenders and say so on the chart subtitle.
 
-required <- c("readr", "dplyr", "tidyr", "ggplot2", "scales")
-to_install <- setdiff(required, rownames(installed.packages()))
-# explicit repos: non-interactive Rscript has no CRAN mirror configured
-if (length(to_install) > 0) {
-  install.packages(to_install, repos = "https://cloud.r-project.org")
-}
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+source("R/viz_common.R")  # packages, tokens, theme, PLAYER_ID, CURRENT_SEASON
 
-PLAYER_ID <- 1634980
 POOL_CSV <- "data/raw/pool_u23_defenders.csv"
 MIN_CB_POOL <- 15  # fewer tagged CBs than this -> fall back to all defenders
-
-# ---- design tokens (light surface; single accent validated 3:1+) ------------
-COL_SURFACE <- "#fcfcfb"
-COL_TEXT    <- "#0b0b0b"
-COL_TEXT_2  <- "#52514e"
-COL_GRID    <- "#e8e7e3"
-COL_ACCENT  <- "#2a78d6"  # Ahanor
-COL_POOL    <- "#8f8d84"  # neutral context marks (the pool)
 
 # Metrics to compare: column name -> readable label. Only columns actually
 # present in the CSV are used, so a Sofascore field going missing shrinks the
@@ -53,24 +36,6 @@ METRICS <- c(
   possessionLost_per90        = "Possession lost /90"
 )
 LOWER_IS_BETTER <- c("possessionLost_per90")
-
-theme_pitchside <- function() {
-  theme_minimal(base_size = 12) +
-    theme(
-      plot.background = element_rect(fill = COL_SURFACE, colour = NA),
-      panel.background = element_rect(fill = COL_SURFACE, colour = NA),
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(colour = COL_GRID, linewidth = 0.4),
-      text = element_text(colour = COL_TEXT),
-      axis.text = element_text(colour = COL_TEXT_2),
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(colour = COL_TEXT_2, size = 10),
-      plot.caption = element_text(colour = COL_TEXT_2, size = 8),
-      strip.text = element_text(colour = COL_TEXT_2, size = 9),
-      legend.position = "top",
-      legend.title = element_blank()
-    )
-}
 
 # ---- load + choose the pool -------------------------------------------------
 raw <- readr::read_csv(POOL_CSV, show_col_types = FALSE)
@@ -103,7 +68,6 @@ metrics_bar <- metrics
 inverted <- names(metrics_bar) %in% LOWER_IS_BETTER
 metrics_bar[inverted] <- paste0(metrics_bar[inverted], " (inverted)")
 
-CURRENT_SEASON <- "25/26"   # season shown in the distributions chart
 caption_pct <- paste0("Data: Sofascore | pool: ", pool_label,
                       ", min. 600 league minutes, U23 at each season's end | ",
                       "percentiles: higher = better")
@@ -204,3 +168,59 @@ p2 <- ggplot() +
 ggsave("figures/distributions.png", p2, width = 10, height = 8, dpi = 150,
        bg = COL_SURFACE)
 message("saved figures/distributions.png")
+
+# ---- chart 3: tackles/90 vs interceptions/90, 25/26 -------------------------
+# The ball-winning plane. Top-right = high in both. The 6 best combined
+# performers (z-scored sum of the two rates) are named; Ahanor is always
+# named and keeps his own accent.
+sc <- pool |>
+  filter(season == CURRENT_SEASON) |>
+  mutate(
+    t90 = suppressWarnings(as.numeric(tackles_per90)),
+    i90 = suppressWarnings(as.numeric(interceptions_per90))
+  ) |>
+  filter(!is.na(t90), !is.na(i90))
+
+others <- sc |> filter(player_id != PLAYER_ID)
+top_ids <- others$player_id[
+  order(-(as.numeric(scale(others$t90)) + as.numeric(scale(others$i90))))
+][1:6]
+
+sc <- sc |>
+  mutate(grp = case_when(
+    player_id == PLAYER_ID ~ "Honest Ahanor",
+    player_id %in% top_ids ~ "Top ball-winners",
+    TRUE ~ pool_label
+  ))
+labeled <- sc |> filter(grp != pool_label)
+
+p3 <- ggplot(sc, aes(x = t90, y = i90, colour = grp)) +
+  geom_hline(yintercept = median(sc$i90), colour = COL_GRID,
+             linetype = "dashed", linewidth = 0.4) +
+  geom_vline(xintercept = median(sc$t90), colour = COL_GRID,
+             linetype = "dashed", linewidth = 0.4) +
+  geom_point(data = filter(sc, grp == pool_label), size = 1.8, alpha = 0.55) +
+  geom_point(data = filter(sc, grp == "Top ball-winners"), size = 2.6) +
+  geom_point(data = filter(sc, grp == "Honest Ahanor"), size = 3.4) +
+  ggrepel::geom_text_repel(
+    data = labeled, aes(label = player_name),
+    size = 3, colour = COL_TEXT, seed = 7,
+    segment.colour = COL_GRID, min.segment.length = 0.2,
+    box.padding = 0.35, show.legend = FALSE
+  ) +
+  scale_colour_manual(values = setNames(
+    c(COL_ACCENT, COL_ACCENT2, COL_POOL),
+    c("Honest Ahanor", "Top ball-winners", pool_label)
+  )) +
+  labs(
+    title = "Ball-winning: tackles vs interceptions",
+    subtitle = paste0(pool_label, " | ", CURRENT_SEASON,
+                      " season | dashed lines: pool medians"),
+    x = "tackles per 90", y = "interceptions per 90",
+    caption = caption_raw
+  ) +
+  theme_pitchside()
+
+ggsave("figures/tackles_vs_interceptions.png", p3, width = 9, height = 7,
+       dpi = 150, bg = COL_SURFACE)
+message("saved figures/tackles_vs_interceptions.png")
