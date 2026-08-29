@@ -47,8 +47,8 @@ for row in stats:
         stage["dropped: squad row lacks birth_date"] += 1
         continue
     age = (reference - date.fromisoformat(bio["birth_date"])).days / 365.25
-    if row.get("position") != "D":
-        stage["dropped: position != 'D'"] += 1
+    if (bio.get("position") or row.get("position")) != "D":
+        stage["dropped: position != 'D' (squad-joined)"] += 1
         continue
     ages.append(age)
     if age >= AGE_MAX:

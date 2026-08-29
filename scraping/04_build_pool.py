@@ -84,18 +84,23 @@ def build_pool() -> list[dict]:
         birth = date.fromisoformat(bio["birth_date"])
         age = (reference - birth).days / 365.25
 
+        # position comes from the SQUAD data - the leaderboard's player
+        # object carries no position field (observed empty on real data)
+        position = bio.get("position") or row.get("position")
+
         # Ahanor's own rows always survive - the R side needs him in every
         # season even where he misses a filter (e.g. minutes in 24/25)
         is_subject = row["player_id"] == str(PLAYER_ID)
         minutes = to_float(row.get("minutesPlayed"))
         if not is_subject:
-            if row.get("position") != "D":
+            if position != "D":
                 continue
             if age >= AGE_MAX or not minutes or minutes < MIN_MINUTES:
                 continue
 
         merged = {
             **row,
+            "position": position,
             "birth_date": bio["birth_date"],
             "age": round(age, 2),
             "height_cm": bio.get("height_cm"),
