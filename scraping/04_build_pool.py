@@ -64,6 +64,11 @@ def to_float(value):
 
 def build_pool() -> list[dict]:
     stats = read_csv("peer_stats.csv")
+    if stats and "season" not in stats[0]:
+        raise SystemExit(
+            "peer_stats.csv has no 'season' column - it predates the "
+            "two-season scrape. Re-run: python scraping/03_scrape_peer_pool.py"
+        )
     squads = {row["player_id"]: row for row in read_csv("squads.csv")}
 
     pool = []
