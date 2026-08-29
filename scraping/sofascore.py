@@ -1,0 +1,238 @@
+"""Shared Sofascore API client + parsing helpers for the Ahanor analysis.
+
+Sofascore has no official public API; these are the JSON endpoints the
+sofascore.com frontend itself calls. That means:
+  * fine for a personal project at this volume, but technically against
+    their ToS - keep the throttle, don't hammer;
+  * endpoints can change shape without notice, so all parsing lives in
+    small pure functions here (easy to fix, easy to test offline);
+  * requests without a browser-like User-Agent are rejected with 403.
+
+Every scrape script imports this module. Parsing functions are pure
+(dict in -> plain data out) and covered by tests/test_parsing.py.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+import requests
+
+BASE_URL = "https://api.sofascore.com/api/v1"
+
+# ---- constants ---------------------------------------------------------------
+PLAYER_ID = 1634980  # https://www.sofascore.com/football/player/honest-ahanor/1634980
+PLAYER_NAME = "Honest Ahanor"
+SERIE_A_ID = 23           # Sofascore uniqueTournament id for Serie A
+SEASON_NAME = "25/26"     # season label as Sofascore prints it (his Atalanta season)
+CUTOFF_DATE = date(2025, 8, 1)  # ignore matches before this (widen for Genoa era)
+
+DATA_RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
+
+# Scrape once, then work from disk: scripts skip outputs that already exist.
+# Re-scrape with FORCE_REFRESH=1 (or delete files in data/raw/).
+FORCE_REFRESH = os.environ.get("FORCE_REFRESH") == "1"
+
+MIN_REQUEST_INTERVAL = 1.5  # seconds between requests (~40/min max). Keep it.
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) "
+        "Gecko/20100101 Firefox/132.0"
+    ),
+    "Accept": "application/json",
+}
+
+
+class SofascoreClient:
+    """Thin requests wrapper: throttling, retries, one place for headers."""
+
+    def __init__(self) -> None:
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        self._last_request = 0.0
+
+    def get(self, *path, params: dict | None = None, ok404: bool = False):
+        """GET /api/v1/<path parts joined by />. Returns parsed JSON.
+
+        ok404=True returns None on a 404 instead of raising - Sofascore uses
+        404 for "no data here" (e.g. no heatmap for an unused sub), which is
+        an answer, not an error. Retries transient failures (429/5xx/network)
+        with exponential backoff.
+        """
+        url = f"{BASE_URL}/" + "/".join(str(p) for p in path)
+        for attempt in range(4):
+            self._throttle()
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+            except requests.RequestException as exc:
+                if attempt == 3:
+                    raise
+                print(f"  network error ({exc}), retrying...")
+                time.sleep(2**attempt)
+                continue
+            if resp.status_code == 404 and ok404:
+                return None
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt < 3:
+                wait = 2 ** (attempt + 1)
+                print(f"  HTTP {resp.status_code}, backing off {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        raise RuntimeError("unreachable")
+
+    def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_request
+        if elapsed < MIN_REQUEST_INTERVAL:
+            time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+        self._last_request = time.monotonic()
+
+
+# ---- small shared helpers ----------------------------------------------------
+
+def output_exists(filename: str) -> bool:
+    """True when the output is already on disk and no refresh is forced."""
+    path = DATA_RAW / filename
+    if FORCE_REFRESH:
+        return False
+    if path.exists():
+        print(f"skip (cached): {path}")
+        return True
+    return False
+
+
+def write_csv(rows: list[dict], filename: str) -> None:
+    """Write list-of-dicts to data/raw/<filename> (union of keys as header)."""
+    import csv
+
+    DATA_RAW.mkdir(parents=True, exist_ok=True)
+    path = DATA_RAW / filename
+    fieldnames: list[str] = []
+    for row in rows:  # preserve first-seen order, cover all keys
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"saved {path} ({len(rows)} rows)")
+
+
+def ts_to_date(timestamp) -> date | None:
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).date()
+
+
+# ---- pure parsing functions (tested offline in tests/test_parsing.py) --------
+
+def parse_event(ev: dict) -> dict:
+    """Flatten one entry of /player/{id}/events/last/{page} 'events'."""
+    tournament = (ev.get("tournament") or {}).get("uniqueTournament") or {}
+    return {
+        "event_id": ev.get("id"),
+        "date": ts_to_date(ev.get("startTimestamp")),
+        "tournament": tournament.get("name"),
+        "tournament_id": tournament.get("id"),
+        "home_team": (ev.get("homeTeam") or {}).get("name"),
+        "away_team": (ev.get("awayTeam") or {}).get("name"),
+        "status": (ev.get("status") or {}).get("type"),
+    }
+
+
+def parse_heatmap(body: dict | None) -> list[dict]:
+    """Point cloud from a heatmap response, in Sofascore's 0-100 pitch space.
+
+    The point list has been observed under both 'heatmap' (per-match) and
+    'points' (season aggregate) keys; points sometimes carry a 'count'
+    weight and sometimes don't (-> weight 1).
+    """
+    if not body:
+        return []
+    points = body.get("heatmap") or body.get("points") or []
+    return [
+        {"x": p.get("x"), "y": p.get("y"), "count": p.get("count", 1)}
+        for p in points
+    ]
+
+
+def parse_season_stats(body: dict | None) -> dict:
+    """Flat stats dict from /player/.../statistics/overall (or {} if none)."""
+    if not body:
+        return {}
+    stats = body.get("statistics") or {}
+    # everything scalar; drop nested keys defensively
+    return {k: v for k, v in stats.items() if not isinstance(v, (dict, list))}
+
+
+def parse_statistics_seasons(body: dict | None) -> list[dict]:
+    """Flatten /player/{id}/statistics/seasons into (tournament, season) rows."""
+    rows = []
+    for ut in (body or {}).get("uniqueTournamentSeasons", []):
+        tournament = ut.get("uniqueTournament") or {}
+        for season in ut.get("seasons", []):
+            rows.append(
+                {
+                    "tournament_id": tournament.get("id"),
+                    "tournament": tournament.get("name"),
+                    "season_id": season.get("id"),
+                    "season_name": season.get("year"),
+                }
+            )
+    return rows
+
+
+def parse_squad(body: dict | None, team_id: int, team_name: str) -> list[dict]:
+    """Flatten /team/{id}/players into one row per player (with birth date)."""
+    rows = []
+    for entry in (body or {}).get("players", []):
+        player = entry.get("player") or {}
+        rows.append(
+            {
+                "player_id": player.get("id"),
+                "player_name": player.get("name"),
+                "position": player.get("position"),
+                "birth_date": ts_to_date(player.get("dateOfBirthTimestamp")),
+                "height_cm": player.get("height"),
+                "preferred_foot": player.get("preferredFoot"),
+                "team_id": team_id,
+                "team_name": team_name,
+            }
+        )
+    return rows
+
+
+def parse_standings_team_ids(body: dict | None) -> list[tuple[int, str]]:
+    """(team_id, team_name) pairs from /unique-tournament/.../standings/total."""
+    teams = []
+    for standing in (body or {}).get("standings", []):
+        for row in standing.get("rows", []):
+            team = row.get("team") or {}
+            if team.get("id") is not None:
+                teams.append((team["id"], team.get("name")))
+    return teams
+
+
+def parse_leaderboard_page(body: dict | None) -> list[dict]:
+    """Flatten one page of /unique-tournament/.../statistics results."""
+    rows = []
+    for result in (body or {}).get("results", []):
+        player = result.get("player") or {}
+        team = result.get("team") or {}
+        row = {
+            "player_id": player.get("id"),
+            "player_name": player.get("name"),
+            "position": player.get("position"),
+            "team_id": team.get("id"),
+            "team_name": team.get("name"),
+        }
+        for key, value in result.items():
+            if key not in ("player", "team") and not isinstance(value, (dict, list)):
+                row[key] = value
+        rows.append(row)
+    return rows

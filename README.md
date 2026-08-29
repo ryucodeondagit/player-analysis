@@ -1,98 +1,76 @@
 # Honest Ahanor — player analysis
 
 Data scraping + analysis of Atalanta defender **Honest Ahanor** (b. 2008-02-23,
-signed from Genoa in July 2025), built in R. End goals: touch heatmaps,
-comparison charts vs his age range across the Big 5 leagues, and head-to-head
-player comparisons.
+signed from Genoa in July 2025). Scraping is Python; the data lands as plain
+CSV in `data/raw/`, so the visualization layer (heatmaps, age-range comparison
+charts, player comparisons) can be built in R or Python on top of it.
 
-## Data sources
+## Why Sofascore (and not FBref)
 
-| What | Source | Script | Technique |
-|---|---|---|---|
-| Season stats + Big-5 age-peer pool | [FBref](https://fbref.com/en/players/42ff58c3/Honest-Ahanor) data, via the maintainer's pre-scraped [worldfootballR data releases](https://github.com/JaseZiv/worldfootballR_data) | `R/01_scrape_fbref.R` | `worldfootballR` `load_*` functions (GitHub downloads — no request to fbref.com) |
-| Match logs + scouting percentiles (best-effort) | FBref directly | `R/01_scrape_fbref.R` | `worldfootballR` scraping; usually blocked, skipped gracefully — see troubleshooting |
-| Per-match touch heatmap coordinates | [Sofascore](https://www.sofascore.com/football/player/honest-ahanor/1634980) | `R/02_scrape_sofascore.R` | `httr2` against the site's own JSON endpoints |
+FBref would be the classic choice, but as of 2025/26 it's effectively closed
+to scrapers: direct requests are rejected by its bot protection with
+HTTP 403, and the community mirror of pre-scraped FBref data
+(worldfootballR's data releases) stopped updating in October 2024 — before
+Ahanor's breakout. Sofascore's JSON API (the same endpoints its own website
+calls) is the practical open source that has everything we need: his bio and
+season stats, per-match and per-season heatmap coordinates, and league-wide
+player stats + squad birth dates for the age comparison pool.
 
-FBref has no coordinate data, and StatsBomb's free event data doesn't cover
-Serie A 2025-26, so Sofascore's (unofficial) JSON API is the practical open
-source for heatmaps. That endpoint is undocumented: keep the built-in
-throttle, expect it to change shape someday, and treat it as
-personal-project-only.
+Caveats: the API is unofficial (technically against Sofascore's ToS — fine
+for a personal project at this volume, keep the built-in throttle), and
+endpoint shapes can drift, which is why all response parsing lives in small
+pure functions in `scraping/sofascore.py` with offline tests.
 
-## Running the scrapers
+## Layout
+
+```
+scraping/sofascore.py           shared client (throttle, retries, headers)
+                                + all parsing functions + constants
+scraping/01_scrape_player.py    bio, seasons list, per-season statistics
+scraping/02_scrape_heatmaps.py  match list, per-match heatmap points,
+                                season-aggregate heatmaps
+scraping/03_scrape_peer_pool.py Serie A leaderboard stats + squad birth
+                                dates -> the age-comparison pool
+tests/test_parsing.py           offline tests (mock JSON, no network)
+data/raw/                       CSV output (gitignored; re-creatable)
+```
+
+## Running
 
 ```sh
-Rscript R/01_scrape_fbref.R      # fast: downloads pre-scraped data releases
-Rscript R/02_scrape_sofascore.R  # throttled: ~12 requests/minute
+pip install -r requirements.txt          # just `requests`
+python scraping/01_scrape_player.py
+python scraping/02_scrape_heatmaps.py    # run after 01 (uses its seasons list)
+python scraping/03_scrape_peer_pool.py
+python tests/test_parsing.py             # offline sanity check, no network
 ```
 
-Both scripts install missing packages on first run, write results to
-`data/raw/` as `.rds` (plus `.csv` twins for eyeballing), and **skip anything
-already on disk** — scrape once, then work from disk. Force a re-scrape with:
+Scripts skip any output already in `data/raw/` — scrape once, work from
+disk. Force a re-scrape with `FORCE_REFRESH=1` before the command (PowerShell:
+`$env:FORCE_REFRESH="1"`), or delete files in `data/raw/`.
 
-```sh
-FORCE_REFRESH=1 Rscript R/01_scrape_fbref.R
-```
+Requests are throttled to one per 1.5s with retry/backoff on 429/5xx.
+Expect `02` to take a few minutes (one request per match). A 404 from a
+heatmap is normal — it means no data for that player/match (unused sub).
 
-All shared constants (player IDs, season years, cutoff dates, pause lengths)
-live in `R/00_setup.R`.
+## Notes on the data
 
-### Troubleshooting: `Forbidden (HTTP 403)` from FBref
+* Coordinates are Sofascore's 0–100 × 0–100 pitch space, attacking
+  left-to-right; per-match points carry a `count` weight.
+* `peer_stats.csv` (season totals for every ranked Serie A player) joins
+  `squads.csv` (birth dates, positions) on `player_id`; the analysis step
+  computes ages and filters the comparison group (e.g. defenders born 2007+,
+  500+ minutes) so changing the age cutoff never needs a re-scrape.
+* Two spots are coded defensively against endpoint drift and worth a glance
+  on first run: the heatmap point-list key (`heatmap` vs `points`, both
+  handled) and the leaderboard `fields` list (falls back to a core subset on
+  HTTP 400).
 
-FBref's bot protection (Cloudflare) blocks scraper traffic outright — a 403
-on the *first* request is their door policy, not a rate-limit ban, and no
-amount of retrying fixes it. That's why `01_scrape_fbref.R` gets its core
-data (Big-5 player tables, which include Ahanor's own rows) from the
-[worldfootballR data releases](https://github.com/JaseZiv/worldfootballR_data)
-instead: plain GitHub downloads, immune to the block.
+## What about `soccerdata`?
 
-The only pieces that still need fbref.com directly are the per-match logs
-and the pre-built scouting report; the script attempts them, logs
-`SKIPPED ... (HTTP 403)` when blocked, and carries on. If a run from some
-network ever succeeds, the results are cached like everything else. Their
-absence is covered: Sofascore provides per-match data, and
-`03_build_peer_pool.R` computes percentiles from the Big-5 pool.
-
-Also make sure worldfootballR came from GitHub, not CRAN (the CRAN build is
-stale); `00_setup.R` installs it that way if it's missing:
-
-```r
-remotes::install_github("JaseZiv/worldfootballR")
-```
-
-### Rate limits
-
-Sofascore is throttled to ~12 requests/minute; the direct-FBref attempts
-pause 7s between calls (FBref temp-bans IPs exceeding ~10 requests/minute
-for ~24h — relevant only if the 403 block ever lifts). Don't shorten either.
-
-### Things to verify on first run
-
-These scripts were written without live access to the sites (authored in a
-sandbox whose network policy blocks them), so two spots are coded defensively
-and worth a glance on your first local run:
-
-1. **Sofascore heatmap JSON shape** — the point list has appeared under both
-   `heatmap` and `points` keys across API versions; `parse_heatmap()` in
-   `R/02_scrape_sofascore.R` accepts both. If every match comes back with 0
-   points, print one raw response body and adjust that function.
-2. **worldfootballR column names** — FBref occasionally renames columns;
-   if a downstream script complains, check `names()` of the freshly scraped
-   data frames.
-
-## Repo layout
-
-```
-R/00_setup.R              constants, caching helpers, polite-scraping config
-R/01_scrape_fbref.R       FBref: player stats + Big-5 age-peer pool
-R/02_scrape_sofascore.R   Sofascore: per-match heatmap point clouds
-data/raw/                 scraped output (gitignored; re-creatable)
-```
-
-Planned next (not yet written):
-
-```
-R/03_build_peer_pool.R    filter Big-5 pool to young defenders, percentiles
-R/04_viz_heatmap.R        ggsoccer pitch + density heatmaps
-R/05_viz_comparisons.R    age-range percentile charts, head-to-head radars
-```
+[probberechts/soccerdata](https://github.com/probberechts/soccerdata) was
+evaluated: its Sofascore reader only covers league tables and schedules — no
+player statistics and no heatmaps, so it can't feed this analysis. Its FBref
+reader does work around the bot protection by driving a real Chrome browser
+(`seleniumbase`), at the cost of heavy dependencies; it's a viable optional
+add-on if FBref-grade stats (per-90s, Big-5-wide pool) are wanted later.

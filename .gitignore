@@ -3,8 +3,7 @@
 data/raw/*
 !data/raw/.gitkeep
 
-# R session litter
-.Rhistory
-.RData
-.Rproj.user/
-*.Rproj
+# Python litter
+__pycache__/
+*.pyc
+.venv/
