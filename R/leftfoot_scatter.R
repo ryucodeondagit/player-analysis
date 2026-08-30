@@ -68,23 +68,23 @@ pool_label <- if (LEAGUE_FILTER == "premier-league") {
 message(nrow(sc), " players in the left-footed pool")
 
 # ── visual roles ─────────────────────────────────────────────────────────────
-# three groups: Ahanor (orange), the top-left quadrant - above-median
-# interceptions with below-median tackles, the "reads the game" profile -
-# marked in blue, and the rest of the pool in gray
-TOP_LEFT_LABEL <- "Top left: interceptors"
+# three groups: Ahanor (orange), everyone above BOTH pool medians - the
+# complete ball-winners in the top-right quadrant - marked in blue, and
+# the rest of the pool in gray
+MARKED_LABEL <- "Above both medians"
 med_t <- median(sc$t90)
 med_i <- median(sc$i90)
 sc <- sc |>
   mutate(who = case_when(
     player_id == PLAYER_ID ~ "Honest Ahanor",
-    t90 < med_t & i90 > med_i ~ TOP_LEFT_LABEL,
+    t90 > med_t & i90 > med_i ~ MARKED_LABEL,
     TRUE ~ pool_label
   ))
-message(sum(sc$who == TOP_LEFT_LABEL), " players in the top-left quadrant")
+message(sum(sc$who == MARKED_LABEL), " players above both medians")
 
 # ── who gets a name label ────────────────────────────────────────────────────
-# everyone marked: the whole top-left quadrant and Ahanor; plus, in a big
-# pool, the N best combined performers keep their names too
+# everyone marked: the whole above-both-medians group and Ahanor; plus, in
+# a big pool, the N best combined performers keep their names too
 if (nrow(sc) <= MAX_ALL_LABELS) {
   labeled <- sc
 } else {
@@ -93,7 +93,7 @@ if (nrow(sc) <= MAX_ALL_LABELS) {
     order(-(as.numeric(scale(others$t90)) + as.numeric(scale(others$i90))))
   ][1:N_TOP_LABELS]
   labeled <- sc |>
-    filter(player_id %in% c(top_ids, PLAYER_ID) | who == TOP_LEFT_LABEL)
+    filter(player_id %in% c(top_ids, PLAYER_ID) | who == MARKED_LABEL)
 }
 message(nrow(labeled), " players named")
 
@@ -111,8 +111,8 @@ p <- ggplot(sc, aes(x = t90, y = i90)) +
   geom_point(data = filter(sc, who == pool_label),
              aes(fill = who),
              size = 2.6, shape = 21, colour = DK_INK, stroke = 0.5) +
-  # top-left quadrant: marked in blue, slightly larger than the pool
-  geom_point(data = filter(sc, who == TOP_LEFT_LABEL),
+  # above-both-medians group: marked in blue, slightly larger than the pool
+  geom_point(data = filter(sc, who == MARKED_LABEL),
              aes(fill = who),
              size = 3, shape = 21, colour = DK_INK, stroke = 0.6) +
   # Ahanor: biggest, orange, same inked outline
@@ -125,10 +125,10 @@ p <- ggplot(sc, aes(x = t90, y = i90)) +
     size = 3, colour = DK_TEXT, family = FONT, seed = 7,
     segment.colour = DK_GRID, min.segment.length = 0.2, box.padding = 0.35
   ) +
-  # fixed colour mapping: Ahanor orange, top-left blue, pool gray
+  # fixed colour mapping: Ahanor orange, marked group blue, pool gray
   scale_fill_manual(values = setNames(
     c(DK_ACCENT2, DK_ACCENT, DK_POOL),
-    c("Honest Ahanor", TOP_LEFT_LABEL, pool_label)
+    c("Honest Ahanor", MARKED_LABEL, pool_label)
   )) +
   guides(fill = guide_legend(override.aes = list(size = 3))) +
   # titles and framing text
