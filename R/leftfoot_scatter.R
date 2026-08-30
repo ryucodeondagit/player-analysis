@@ -1,9 +1,10 @@
 # leftfoot_scatter.R ----------------------------------------------------------
-# Interceptions/90 vs tackles/90 for LEFT-FOOTED U23 defenders, Big-5, 25/26.
-# Ahanor (left-footed himself) is the orange highlight; because left-footed
-# centre-backs are scarce, this is the market he actually competes in.
+# Interceptions/90 vs tackles/90 for LEFT-FOOTED defenders of ANY age,
+# Big-5 leagues, 25/26. Ahanor (left-footed himself) is the orange
+# highlight; left-footed defenders are scarce, so this is the market he
+# actually competes in - veterans included.
 #
-# Reads  data/raw/pool_u23_defenders.csv   (04_build_pool.py)
+# Reads  data/raw/pool_defenders_all.csv   (04_build_pool.py, all-ages pool)
 # Writes figures/leftfooted_ball_winners.png
 #
 # Run:  Rscript R/leftfoot_scatter.R
@@ -32,8 +33,11 @@ theme_matte <- function() {
     )
 }
 
-# ── data: current season, left-footed, prefer the CB-tagged pool ─────────────
-pool <- readr::read_csv("data/raw/pool_u23_defenders.csv",
+# ── data: current season, left-footed, ALL ages ──────────────────────────────
+# pool_defenders_all.csv is the age-unfiltered pool (same 600-minute floor).
+# Note: it carries no CB tag (only the U23 pool was position-enriched), so
+# the comparison group is all left-footed defenders - and says so.
+pool <- readr::read_csv("data/raw/pool_defenders_all.csv",
                         show_col_types = FALSE) |>
   filter(season == CURRENT_SEASON)
 
@@ -42,21 +46,13 @@ sc <- pool |>
     # numeric coercion: CSV round-trips can leave these as text
     t90  = suppressWarnings(as.numeric(tackles_per90)),
     i90  = suppressWarnings(as.numeric(interceptions_per90)),
-    is_cb = toupper(as.character(is_cb)) %in% "TRUE",
     lefty = grepl("left", preferred_foot, ignore.case = TRUE)
   ) |>
   # the filter: left-footed, with both metrics present.
   # Ahanor always survives - he is the subject of the chart.
   filter((lefty | player_id == PLAYER_ID), !is.na(t90), !is.na(i90))
 
-# use the CB-tagged subset when the tagging produced enough of them;
-# otherwise fall back to all left-footed defenders (and say so in labels)
-if (sum(sc$is_cb, na.rm = TRUE) >= 10) {
-  sc <- sc |> filter(is_cb | player_id == PLAYER_ID)
-  pool_label <- "Left-footed U23 centre-backs, Big-5 leagues"
-} else {
-  pool_label <- "Left-footed U23 defenders, Big-5 leagues"
-}
+pool_label <- "Left-footed defenders, Big-5 leagues"
 message(nrow(sc), " players in the left-footed pool")
 
 # ── who gets a name label ────────────────────────────────────────────────────
