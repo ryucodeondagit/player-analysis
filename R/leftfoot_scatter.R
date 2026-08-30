@@ -15,10 +15,10 @@
 source("R/viz_common.R")
 
 # ── knobs: edit freely ───────────────────────────────────────────────────────
-TITLE_LEFTIES <- "The Left-Footed Market"     # chart title
-MAX_ALL_LABELS <- 18   # label every player when the pool is this small or
-                       # smaller; above it, only the best (plus Ahanor)
-N_TOP_LABELS   <- 8    # how many get names when the pool is big
+TITLE_LEFTIES <- "The Left-Footed Market"  # chart title
+# name labels go to the outliers past either threshold (Ahanor always named)
+LABEL_TACKLES_ABOVE       <- 3   # tackles/90 above this -> named
+LABEL_INTERCEPTIONS_ABOVE <- 2   # interceptions/90 above this -> named
 
 # ── surface: matte charcoal, a step lighter than the house dark ──────────────
 # All mark colours were contrast-checked against this surface (>= 3:1).
@@ -56,16 +56,15 @@ pool_label <- "Left-footed defenders, Big-5 leagues"
 message(nrow(sc), " players in the left-footed pool")
 
 # ── who gets a name label ────────────────────────────────────────────────────
-# small pool: everyone. big pool: the N best by combined z-score, plus Ahanor.
-if (nrow(sc) <= MAX_ALL_LABELS) {
-  labeled <- sc
-} else {
-  others <- sc |> filter(player_id != PLAYER_ID)
-  top_ids <- others$player_id[
-    order(-(as.numeric(scale(others$t90)) + as.numeric(scale(others$i90))))
-  ][1:N_TOP_LABELS]
-  labeled <- sc |> filter(player_id %in% c(top_ids, PLAYER_ID))
-}
+# the outliers on either axis: heavy tacklers past LABEL_TACKLES_ABOVE and
+# heavy interceptors past LABEL_INTERCEPTIONS_ABOVE - plus Ahanor, always
+labeled <- sc |>
+  filter(t90 > LABEL_TACKLES_ABOVE |
+         i90 > LABEL_INTERCEPTIONS_ABOVE |
+         player_id == PLAYER_ID)
+message(nrow(labeled), " players named (thresholds: >",
+        LABEL_TACKLES_ABOVE, " tkl/90 or >",
+        LABEL_INTERCEPTIONS_ABOVE, " int/90)")
 
 # split into the two visual roles: the highlight and the context
 sc <- sc |>
