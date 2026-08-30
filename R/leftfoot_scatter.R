@@ -16,9 +16,10 @@ source("R/viz_common.R")
 
 # ── knobs: edit freely ───────────────────────────────────────────────────────
 TITLE_LEFTIES <- "The Left-Footed Market"  # chart title
-# name labels go to the outliers past either threshold (Ahanor always named)
-LABEL_TACKLES_ABOVE       <- 3   # tackles/90 above this -> named
-LABEL_INTERCEPTIONS_ABOVE <- 2   # interceptions/90 above this -> named
+LEAGUE_FILTER  <- "premier-league"  # league slug from BIG5_LEAGUES; "" = all
+MAX_ALL_LABELS <- 18   # label every player when the pool is this small or
+                       # smaller; above it, only the best (plus Ahanor)
+N_TOP_LABELS   <- 8    # how many get names when the pool is big
 
 # ── surface: matte charcoal, a step lighter than the house dark ──────────────
 # All mark colours were contrast-checked against this surface (>= 3:1).
@@ -48,23 +49,36 @@ sc <- pool |>
     i90  = suppressWarnings(as.numeric(interceptions_per90)),
     lefty = grepl("left", preferred_foot, ignore.case = TRUE)
   ) |>
-  # the filter: left-footed, with both metrics present.
-  # Ahanor always survives - he is the subject of the chart.
-  filter((lefty | player_id == PLAYER_ID), !is.na(t90), !is.na(i90))
+  # the filter: left-footed, in the chosen league, with both metrics
+  # present. Ahanor always survives - he is the subject of the chart, shown
+  # for reference even though he plays outside the filtered league.
+  filter(
+    (lefty & (LEAGUE_FILTER == "" | league == LEAGUE_FILTER)) |
+      player_id == PLAYER_ID,
+    !is.na(t90), !is.na(i90)
+  )
 
-pool_label <- "Left-footed defenders, Big-5 leagues"
+pool_label <- if (LEAGUE_FILTER == "premier-league") {
+  "Left-footed Premier League defenders"
+} else if (LEAGUE_FILTER == "") {
+  "Left-footed defenders, Big-5 leagues"
+} else {
+  paste0("Left-footed defenders, ", LEAGUE_FILTER)
+}
 message(nrow(sc), " players in the left-footed pool")
 
 # ── who gets a name label ────────────────────────────────────────────────────
-# the outliers on either axis: heavy tacklers past LABEL_TACKLES_ABOVE and
-# heavy interceptors past LABEL_INTERCEPTIONS_ABOVE - plus Ahanor, always
-labeled <- sc |>
-  filter(t90 > LABEL_TACKLES_ABOVE |
-         i90 > LABEL_INTERCEPTIONS_ABOVE |
-         player_id == PLAYER_ID)
-message(nrow(labeled), " players named (thresholds: >",
-        LABEL_TACKLES_ABOVE, " tkl/90 or >",
-        LABEL_INTERCEPTIONS_ABOVE, " int/90)")
+# small pool: everyone. big pool: the N best by combined z-score, plus Ahanor.
+if (nrow(sc) <= MAX_ALL_LABELS) {
+  labeled <- sc
+} else {
+  others <- sc |> filter(player_id != PLAYER_ID)
+  top_ids <- others$player_id[
+    order(-(as.numeric(scale(others$t90)) + as.numeric(scale(others$i90))))
+  ][1:N_TOP_LABELS]
+  labeled <- sc |> filter(player_id %in% c(top_ids, PLAYER_ID))
+}
+message(nrow(labeled), " players named")
 
 # split into the two visual roles: the highlight and the context
 sc <- sc |>
@@ -103,7 +117,8 @@ p <- ggplot(sc, aes(x = t90, y = i90)) +
   labs(
     title = TITLE_LEFTIES,
     subtitle = paste0("Tackles and interceptions per 90 - ", pool_label, ", ",
-                      CURRENT_SEASON, ". Dashed lines mark pool medians"),
+                      CURRENT_SEASON, "\nAhanor (Serie A) shown for ",
+                      "reference. Dashed lines mark pool medians"),
     x = "Tackles per 90", y = "Interceptions per 90",
     caption = caption
   ) +
