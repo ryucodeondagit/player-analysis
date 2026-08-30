@@ -96,19 +96,21 @@ p <- ggplot() +
   ) +
   geom_point(
     data = filter(plot_df, role == club_role),
-    aes(x = pct, y = label, colour = role), size = 2.4
+    aes(x = pct, y = label, fill = role),
+    size = 2.6, shape = 21, colour = DK_INK, stroke = 0.5
   ) +
   geom_point(
     data = filter(plot_df, role == "Honest Ahanor"),
-    aes(x = pct, y = label, colour = role), size = 3.6
+    aes(x = pct, y = label, fill = role),
+    size = 3.8, shape = 21, colour = DK_INK, stroke = 0.7
   ) +
-  scale_colour_manual(values = setNames(
+  scale_fill_manual(values = setNames(
     c(DK_ACCENT2, DK_ACCENT), c("Honest Ahanor", club_role)
   )) +
   scale_x_continuous(limits = c(0, 100), breaks = c(0, 25, 50, 75, 100)) +
   facet_grid(rows = vars(group), scales = "free_y", space = "free_y",
              switch = "y") +
-  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  guides(fill = guide_legend(override.aes = list(size = 3))) +
   labs(
     title = TITLE_CLUB, subtitle = subtitle,
     x = "Percentile", y = NULL, caption = caption

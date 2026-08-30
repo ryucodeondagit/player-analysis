@@ -64,8 +64,21 @@ DK_SURFACE <- "#1a1a19"
 DK_TEXT    <- "#ffffff"
 DK_TEXT_2  <- "#c3c2b7"
 DK_GRID    <- "#383835"
+DK_BORDER  <- "#4a4a46"  # panel frames - the "inked border" of the house style
+DK_INK     <- "#121211"  # outline drawn around filled marks (reads as a gap)
+DK_POOL    <- "#8f8d84"  # neutral context marks
 DK_ACCENT  <- "#3987e5"  # categorical slot 1, dark step
 DK_ACCENT2 <- "#d95926"  # categorical slot 2, dark step
+# sequential blue for dark surfaces (dim near-surface -> bright)
+DK_SEQ_LO  <- "#184f95"
+DK_SEQ_HI  <- "#9ec5f4"
+# metric families, fixed order (validated 4-slot set on the dark surface)
+FAMILY_COLS <- c(
+  "Overall"     = "#3987e5",
+  "Defending"   = "#d95926",
+  "Duels"       = "#199e70",
+  "On the ball" = "#c98500"
+)
 
 theme_pitchside <- function() {
   theme_minimal(base_size = 12, base_family = FONT) +
@@ -112,7 +125,9 @@ theme_pitchside_dark <- function() {
       plot.caption = element_text(colour = DK_TEXT_2, size = 8, hjust = 1,
                                   margin = margin(t = 14)),
       strip.text = element_text(colour = DK_TEXT_2, size = 9.5, face = "bold"),
-      legend.text = element_text(colour = DK_TEXT, size = 9.5)
+      legend.text = element_text(colour = DK_TEXT, size = 9.5),
+      panel.border = element_rect(colour = DK_BORDER, fill = NA,
+                                  linewidth = 0.6)
     )
 }
 
@@ -188,10 +203,11 @@ pitch_layers <- function(line_col = "#c2c1bb", linewidth = 0.4) {
 }
 
 theme_pitch <- function() {
-  theme_pitchside() +
+  theme_pitchside_dark() +
     theme(
       panel.grid = element_blank(),
       axis.text = element_blank(),
-      axis.title = element_blank()
+      axis.title = element_blank(),
+      panel.border = element_blank()  # the pitch outline is its own frame
     )
 }

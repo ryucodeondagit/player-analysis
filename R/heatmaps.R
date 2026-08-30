@@ -29,21 +29,22 @@ heat_layers <- function() {
       aes(x = x, y = y, fill = after_stat(level), alpha = after_stat(level)),
       bins = 12, contour_var = "ndensity"
     ),
-    scale_fill_gradient(low = COL_SEQ_LO, high = COL_SEQ_HI, guide = "none"),
-    scale_alpha_continuous(range = c(0, 0.85), guide = "none")
+    # dark surface: dim near-surface blue -> bright at the hot spots
+    scale_fill_gradient(low = DK_SEQ_LO, high = DK_SEQ_HI, guide = "none"),
+    scale_alpha_continuous(range = c(0, 0.9), guide = "none")
   )
 }
 
 pitch_plot <- function(points, title, subtitle) {
   ggplot(points) +
     heat_layers() +
-    pitch_layers() +
+    pitch_layers(line_col = "#55534e") +
     # direction-of-attack arrow in the strip below the pitch
     annotate("segment", x = 42, xend = 58, y = -5, yend = -5,
-             colour = COL_TEXT_2, linewidth = 0.5,
+             colour = DK_TEXT_2, linewidth = 0.5,
              arrow = arrow(length = unit(5, "pt"), type = "closed")) +
     annotate("text", x = 60.5, y = -5, label = "Attack", hjust = 0,
-             size = 2.9, colour = COL_TEXT_2, family = FONT) +
+             size = 2.9, colour = DK_TEXT_2, family = FONT) +
     coord_fixed(ratio = 68 / 105, xlim = c(0, 100), ylim = c(-9, 100),
                 expand = FALSE) +
     labs(title = title, subtitle = subtitle, caption = CAPTION) +
@@ -69,7 +70,8 @@ p1 <- pitch_plot(
 ) +
   facet_wrap(~season_label, ncol = 2)
 
-save_fig("figures/heatmap_seasons.png", p1, width = 11, height = 5.4)
+save_fig("figures/heatmap_seasons.png", p1, width = 11, height = 5.4,
+         bg = DK_SURFACE)
 
 # ---- 2. 25/26 all competitions, from per-match points -----------------------
 matches <- readr::read_csv("data/raw/heatmap_points.csv", show_col_types = FALSE) |>
@@ -84,7 +86,8 @@ if (nrow(matches) > 0) {
     paste0("Honest Ahanor, all competitions - aggregated from ",
            n_matches, " matches")
   )
-  save_fig("figures/heatmap_2526_all.png", p2, width = 8, height = 6.4)
+  save_fig("figures/heatmap_2526_all.png", p2, width = 8, height = 6.4,
+           bg = DK_SURFACE)
 } else {
   message("no 25/26 rows in heatmap_points.csv - skipped all-competitions map")
 }
