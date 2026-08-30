@@ -45,7 +45,9 @@ if (nrow(cbs_in_pool) == 0) stop("no ", club_name, " CBs have pool rows")
 subject <- pool |> filter(player_id == PLAYER_ID)
 if (nrow(subject) == 0) stop("Ahanor missing from pool_defenders_all.csv")
 
-metrics <- METRICS[names(METRICS) %in% names(pool)]
+# this chart sticks to concrete on-pitch metrics - the Sofascore rating is
+# a black-box aggregate, so it is excluded here
+metrics <- METRICS[names(METRICS) %in% names(pool) & names(METRICS) != "rating"]
 
 # percentile of each target within the full pool, metric by metric
 targets <- bind_rows(
