@@ -99,6 +99,9 @@ R/midfield_scatter.R            Chelsea midfield: defensive work vs key
                                 passes, PL midfielders, roster highlighted
 R/midfield_heatmaps.R           Chelsea midfield: one pitch per roster
                                 player, 25/26 season heatmaps
+R/midfield_vs_league.R          Chelsea's midfield unit vs the other 19 PL
+                                midfield units, key stat by key stat, plus
+                                a rank card (with/without the departed player)
 tests/test_parsing.py           offline tests (mock JSON, no network)
 data/raw/                       CSV output (gitignored; re-creatable)
 ```
@@ -173,6 +176,8 @@ python scraping/07_build_midfield_pool.py      # offline join/filter
 Rscript R/midfield_creation_share.R            # figures/midfield_creation_share.png
 Rscript R/midfield_scatter.R                   # figures/midfield_map.png
 Rscript R/midfield_heatmaps.R                  # figures/midfield_heatmaps.png
+Rscript R/midfield_vs_league.R                 # figures/midfield_vs_league.png
+                                               # + figures/midfield_rank_card.png
 ```
 
 If `03` already ran, `06` reuses its `peer_stats_premier-league_25-26.csv`
@@ -196,6 +201,15 @@ The three charts, and what each is for:
 * **Heatmap grid** - one pitch per roster player, departed first, new
   signings last on their own 25/26 league. Panel strips carry role, league
   and minutes.
+* **Midfield vs the league** - every club's midfielders (Sofascore
+  position M, 600+ minutes) pooled into one unit rate per key stat (per 90
+  unit minutes; percentages minutes-weighted). One dot strip per stat, 20
+  clubs, Chelsea in blue with its rank, the league's best club named. A
+  hollow orange marker re-computes Chelsea without the roster's `departed`
+  player(s), so each row shows where the unit sat and where it would have
+  sat without him. The rank card condenses the same thing to one row per
+  stat with an arrow for the drop. Note that "position M" includes each
+  club's attacking midfielders, consistently across clubs.
 
 The R scripts use "·" in labels; run them under a UTF-8 locale (the
 default on current R/Windows; on a minimal Linux set `LANG=C.UTF-8`).
