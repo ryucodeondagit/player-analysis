@@ -1,4 +1,4 @@
-"""Scrape Ahanor's heatmap data from Sofascore.
+"""Scrape the subject's heatmap data from Sofascore.
 
 Two kinds, because they serve different plots:
   * per-match point clouds  -> heatmap by match / faceted small multiples
@@ -21,21 +21,21 @@ from datetime import date
 from sofascore import (
     CUTOFF_DATE,
     DATA_RAW,
-    PLAYER_ID,
     SofascoreClient,
     output_exists,
     parse_event,
     parse_heatmap,
+    subject_id,
     write_csv,
 )
 
 
-def fetch_matches(client: SofascoreClient) -> list[dict]:
+def fetch_matches(client: SofascoreClient, player_id: int) -> list[dict]:
     """Page backwards through played matches until past the cutoff date."""
     matches: list[dict] = []
     page = 0
     while True:
-        body = client.get("player", PLAYER_ID, "events", "last", page, ok404=True)
+        body = client.get("player", player_id, "events", "last", page, ok404=True)
         events = (body or {}).get("events", [])
         if not events:
             break
@@ -55,12 +55,13 @@ def fetch_matches(client: SofascoreClient) -> list[dict]:
 
 def main() -> None:
     client = SofascoreClient()
+    player_id = subject_id(client)
 
     # ---- match list ----------------------------------------------------------
     if not output_exists("matches.csv"):
-        matches = fetch_matches(client)
+        matches = fetch_matches(client, player_id)
         if not matches:
-            raise SystemExit("No matches returned - check PLAYER_ID / endpoint")
+            raise SystemExit("No matches returned - check the subject id / endpoint")
         write_csv(matches, "matches.csv")
     else:
         with open(DATA_RAW / "matches.csv", encoding="utf-8") as fh:
@@ -80,7 +81,7 @@ def main() -> None:
         for match in target:
             print(f"heatmap {match['date']}  {match['home_team']} vs {match['away_team']}")
             body = client.get(
-                "event", match["event_id"], "player", PLAYER_ID, "heatmap",
+                "event", match["event_id"], "player", player_id, "heatmap",
                 ok404=True,  # 404 = unused sub / competition without heatmaps
             )
             for point in parse_heatmap(body):
@@ -110,7 +111,7 @@ def main() -> None:
         rows = []
         for season in seasons:
             body = client.get(
-                "player", PLAYER_ID,
+                "player", player_id,
                 "unique-tournament", season["tournament_id"],
                 "season", season["season_id"],
                 "heatmap", "overall",

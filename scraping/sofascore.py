@@ -1,4 +1,4 @@
-"""Shared Sofascore API client + parsing helpers for the Ahanor analysis.
+"""Shared Sofascore API client + parsing helpers for the player analyses.
 
 Sofascore has no official public API; these are the JSON endpoints the
 sofascore.com frontend itself calls. That means:
@@ -49,16 +49,28 @@ BASE_URLS = [
 ]
 
 # ---- constants ---------------------------------------------------------------
-PLAYER_ID = 1634980  # https://www.sofascore.com/football/player/honest-ahanor/1634980
-PLAYER_NAME = "Honest Ahanor"
-SERIE_A_ID = 23           # Sofascore uniqueTournament id for Serie A
+
+# ---- subject of the single-player analysis (scripts 01-05, R/comparisons.R,
+# R/heatmaps.R, R/club_comparison.R, R/leftfoot_scatter.R) -------------------
+# Change these four lines to point the whole player pipeline at someone else.
+# Delete data/raw/ (or the subject files) afterwards - outputs are cached.
+PLAYER_NAME = "Valentín Barco"
+PLAYER_ID = None          # Sofascore id. None = resolve by name via search on
+                          # the first run of 01 (cached in data/raw/subject.json).
+                          # Set it explicitly if search picks a namesake.
+PLAYER_POSITION = "D"     # Sofascore's coarse position (D/M/F): the pool position
+# Detailed position codes (characteristics endpoint) that count as the
+# subject's role within that coarse position. Full-back here; centre-back
+# would be {"CB", "DC"}. Sofascore has used both vocabularies over time.
+ROLE_CODES = {"LB", "DL", "LWB", "RB", "DR", "RWB"}
+ROLE_LABEL = "full-backs"  # how the R charts name the role pool
 
 # Seasons in scope, labeled as Sofascore prints them, each mapped to the
 # reference date used for the age filter (that season's end) - so "U23" means
 # U23 as of the season being compared, in both seasons.
 SEASONS = {
-    "24/25": date(2025, 6, 30),  # Genoa breakout
-    "25/26": date(2026, 6, 30),  # first Atalanta season
+    "24/25": date(2025, 6, 30),  # Barco: Sevilla loan, then Strasbourg loan
+    "25/26": date(2026, 6, 30),  # Barco: Strasbourg (permanent)
 }
 
 # The Big 5 leagues by Sofascore uniqueTournament id. The peer-pool scraper
@@ -76,12 +88,10 @@ BIG5_LEAGUES = {
 AGE_MAX = 23              # keep players with age < AGE_MAX at that reference
 MIN_MINUTES = 600         # pool entry requires this many league minutes
 
-# Club whose centre-backs Ahanor gets compared against (05_scrape_club_cbs.py).
+# Club whose same-role players the subject gets compared against
+# (05_scrape_club_role.py + R/club_comparison.R).
 COMPARE_CLUB = "Chelsea"
 
-# Characteristics position codes counted as centre-back. Sofascore has used
-# both vocabularies ("CB" and the Opta-style "DC" = defender-centre).
-CB_CODES = {"CB", "DC"}
 CUTOFF_DATE = date(2024, 7, 1)  # match-data horizon: start of the 24/25 season
 
 # ---- Chelsea midfield analysis (06/07 + R/midfield_*.R) ----------------------
@@ -478,3 +488,47 @@ def pick_season_row(seasons: list[dict], season_name: str,
         if str(row.get("tournament_id")) in allowed:
             return row
     return rows[0] if rows else None
+
+
+# ---- subject id resolution ---------------------------------------------------
+
+def subject_id(client=None) -> int:
+    """The subject's Sofascore id: PLAYER_ID, else the cached search result.
+
+    With a client, an unknown subject is resolved by name through Sofascore
+    search and cached in data/raw/subject.json (01 does this). Without a
+    client (offline steps like 04), a missing cache is a clear error.
+    """
+    import json
+
+    if PLAYER_ID is not None:
+        return int(PLAYER_ID)
+    cache = DATA_RAW / "subject.json"
+    if cache.exists():
+        cached = json.loads(cache.read_text(encoding="utf-8"))
+        if cached.get("name") == PLAYER_NAME:
+            return int(cached["player_id"])
+    if client is None:
+        raise SystemExit(
+            f"No Sofascore id known for {PLAYER_NAME!r}. Run "
+            "scraping/01_scrape_player.py first (it resolves the name), or "
+            "set PLAYER_ID in scraping/sofascore.py"
+        )
+    body = client.get("search", "all", params={"q": PLAYER_NAME, "page": 0},
+                      ok404=True)
+    hits = [h for h in parse_search_players(body)
+            if names_match(PLAYER_NAME, h["player_name"])]
+    if not hits:
+        raise SystemExit(
+            f"Sofascore search found no player matching {PLAYER_NAME!r}. "
+            "Look him up on sofascore.com and set PLAYER_ID in sofascore.py"
+        )
+    hit = hits[0]
+    print(f"subject: {PLAYER_NAME} -> {hit['player_id']} {hit['player_name']} "
+          f"[{hit.get('team_name') or '?'}]"
+          + (f"  ({len(hits)} hits - set PLAYER_ID if this is the wrong one)"
+             if len(hits) > 1 else ""))
+    DATA_RAW.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"name": PLAYER_NAME, **hit}, ensure_ascii=False,
+                                indent=2), encoding="utf-8")
+    return int(hit["player_id"])

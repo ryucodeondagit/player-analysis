@@ -14,8 +14,41 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 
-PLAYER_ID <- 1634980
 CURRENT_SEASON <- "25/26"
+
+# ---- the subject ------------------------------------------------------------
+# Who the single-player charts are about comes from data/raw/player_profile.csv
+# (written by scraping/01_scrape_player.py from PLAYER_NAME in sofascore.py),
+# so the R side never hard-codes a player. The squad-level midfield scripts
+# don't need it, hence the soft failure here and require_subject() below.
+PLAYER_ID <- NA; PLAYER_NAME <- ""; PLAYER_TEAM <- ""; PLAYER_FOOT <- ""
+if (file.exists("data/raw/player_profile.csv")) {
+  .profile <- readr::read_csv("data/raw/player_profile.csv", show_col_types = FALSE)
+  PLAYER_ID   <- .profile$player_id[1]
+  PLAYER_NAME <- .profile$name[1]
+  PLAYER_TEAM <- if ("team" %in% names(.profile)) .profile$team[1] else ""
+  PLAYER_FOOT <- if ("preferred_foot" %in% names(.profile)) .profile$preferred_foot[1] else ""
+}
+SUBJECT_SHORT <- if (nzchar(PLAYER_NAME)) tail(strsplit(PLAYER_NAME, " ")[[1]], 1) else ""
+require_subject <- function() {
+  if (is.na(PLAYER_ID)) stop("data/raw/player_profile.csv missing - run ",
+                             "python scraping/01_scrape_player.py first")
+}
+
+# Club per season, for facet strips and the pizza titles. Sofascore's season
+# stats carry no club, so this is a hand-kept label. Edit for a new subject.
+SEASON_TEAMS <- c(
+  "24/25" = "Sevilla / Strasbourg",
+  "25/26" = "Strasbourg"
+)
+season_label <- function(season) {
+  team <- SEASON_TEAMS[season]
+  ifelse(is.na(team), season, paste0(season, " - ", team))
+}
+
+# Role pool naming, matching ROLE_CODES / ROLE_LABEL in sofascore.py
+ROLE_LABEL <- "full-backs"
+POSITION_LABEL <- "defenders"  # the coarse fallback pool (PLAYER_POSITION)
 
 # Footer credit on every figure - put your name/handle here (or leave "").
 AUTHOR <- ""
@@ -52,7 +85,7 @@ COL_SURFACE <- "#fcfcfb"
 COL_TEXT    <- "#0b0b0b"
 COL_TEXT_2  <- "#52514e"
 COL_GRID    <- "#e8e7e3"
-COL_ACCENT  <- "#2a78d6"  # Ahanor / primary series (categorical slot 1)
+COL_ACCENT  <- "#2a78d6"  # subject / primary series (categorical slot 1)
 COL_ACCENT2 <- "#eb6834"  # secondary series (categorical slot 2)
 COL_POOL    <- "#8f8d84"  # neutral context marks
 # sequential blue ramp endpoints (magnitude encoding, one hue light->dark)
@@ -134,32 +167,36 @@ theme_pitchside_dark <- function() {
 # ---- shared metric config ---------------------------------------------------
 # Metric column -> readable label; grouped into families for the bar/dot
 # charts. "Lower is better" metrics get their percentile inverted so every
-# chart reads "higher = better".
+# chart reads "higher = better". This set is a full-back's job description:
+# defend, win duels, then progress and create. Swap for the role at hand.
 METRICS <- c(
   rating                      = "Sofascore rating",
   tackles_per90               = "Tackles /90",
   interceptions_per90         = "Interceptions /90",
-  clearances_per90            = "Clearances /90",
   ballRecovery_per90          = "Ball recoveries /90",
-  blockedShots_per90          = "Blocked shots /90",
-  aerialDuelsWon_per90        = "Aerial duels won /90",
-  aerialDuelsWonPercentage    = "Aerial duel win %",
+  clearances_per90            = "Clearances /90",
   totalDuelsWonPercentage     = "Duel win %",
+  groundDuelsWon_per90        = "Ground duels won /90",
+  aerialDuelsWonPercentage    = "Aerial duel win %",
   accuratePasses_per90        = "Accurate passes /90",
   accuratePassesPercentage    = "Pass accuracy %",
   accurateLongBalls_per90     = "Accurate long balls /90",
+  keyPasses_per90             = "Key passes /90",
+  expectedAssists_per90       = "Expected assists /90",
+  successfulDribbles_per90    = "Successful dribbles /90",
   possessionLost_per90        = "Possession lost /90"
 )
 LOWER_IS_BETTER <- c("possessionLost_per90")
 METRIC_GROUPS <- c(
   rating = "Overall",
   tackles_per90 = "Defending", interceptions_per90 = "Defending",
-  clearances_per90 = "Defending", ballRecovery_per90 = "Defending",
-  blockedShots_per90 = "Defending",
-  aerialDuelsWon_per90 = "Duels", aerialDuelsWonPercentage = "Duels",
-  totalDuelsWonPercentage = "Duels",
+  ballRecovery_per90 = "Defending", clearances_per90 = "Defending",
+  totalDuelsWonPercentage = "Duels", groundDuelsWon_per90 = "Duels",
+  aerialDuelsWonPercentage = "Duels",
   accuratePasses_per90 = "On the ball", accuratePassesPercentage = "On the ball",
-  accurateLongBalls_per90 = "On the ball", possessionLost_per90 = "On the ball"
+  accurateLongBalls_per90 = "On the ball", keyPasses_per90 = "On the ball",
+  expectedAssists_per90 = "On the ball", successfulDribbles_per90 = "On the ball",
+  possessionLost_per90 = "On the ball"
 )
 GROUP_ORDER <- c("Overall", "Defending", "Duels", "On the ball")
 

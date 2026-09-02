@@ -1,9 +1,10 @@
 # heatmaps.R ------------------------------------------------------------------
-# Ahanor's pitch heatmaps from the scraped Sofascore coordinates.
+# The subject's pitch heatmaps from the scraped Sofascore coordinates.
 #
 # Reads  data/raw/season_heatmaps.csv   season-aggregate point clouds
 #        data/raw/heatmap_points.csv    per-match point clouds
-# Writes figures/heatmap_seasons.png    Serie A, 24/25 vs 25/26 side by side
+# Writes figures/heatmap_seasons.png    league seasons side by side (one
+#                                       panel per league x season)
 #        figures/heatmap_2526_all.png   25/26 all competitions, one pitch
 #
 # Run:  Rscript R/heatmaps.R
@@ -13,10 +14,15 @@
 # density estimate is weighted correctly.
 
 source("R/viz_common.R")
+require_subject()
 
 # ---- titles: edit freely, nothing else depends on the wording ---------------
-TITLE_SEASONS   <- "Genoa to Bergamo"
+TITLE_SEASONS   <- paste0(SUBJECT_SHORT, ", Season by Season")
 TITLE_FOOTPRINT <- "The 2025-26 Footprint"
+
+# league seasons that get a panel (Sofascore's tournament names)
+LEAGUES <- c("Premier League", "LaLiga", "Serie A", "Bundesliga", "Ligue 1")
+SEASONS_IN_SCOPE <- SEASON_TEAMS  # names() = the seasons that get a panel
 
 CAPTION <- chart_footer("Sofascore 0-100 pitch coordinates")
 
@@ -24,26 +30,29 @@ CAPTION <- chart_footer("Sofascore 0-100 pitch coordinates")
 
 dir.create("figures", showWarnings = FALSE)
 
-# ---- 1. Serie A season heatmaps, side by side -------------------------------
+# ---- 1. league season heatmaps, side by side --------------------------------
+# One panel per (season, league): a loan move mid-season gives two panels
+# for that season, which is the honest picture.
 seasons <- readr::read_csv("data/raw/season_heatmaps.csv", show_col_types = FALSE) |>
-  filter(tournament == "Serie A") |>
-  mutate(season_label = paste0(
-    ifelse(season_name == CURRENT_SEASON, "25/26 - Atalanta", paste0(season_name, " - Genoa"))
-  )) |>
+  filter(tournament %in% LEAGUES, season_name %in% names(SEASONS_IN_SCOPE)) |>
+  mutate(season_label = paste0(season_name, " - ", tournament)) |>
+  arrange(season_name, tournament) |>
+  mutate(season_label = factor(season_label, levels = unique(season_label))) |>
   uncount(weights = pmax(1, round(count)))
 
-if (nrow(seasons) == 0) stop("no Serie A rows in season_heatmaps.csv")
+if (nrow(seasons) == 0) stop("no league rows in season_heatmaps.csv")
+n_panels <- length(levels(droplevels(seasons$season_label)))
 
 p1 <- pitch_plot(
   seasons,
   TITLE_SEASONS,
-  "Honest Ahanor's Serie A heatmaps, season by season",
+  paste0(PLAYER_NAME, "'s league heatmaps, season by season"),
   CAPTION
 ) +
-  facet_wrap(~season_label, ncol = 2)
+  facet_wrap(~season_label, ncol = n_panels)
 
-save_fig("figures/heatmap_seasons.png", p1, width = 11, height = 5.4,
-         bg = MT_SURFACE)
+save_fig("figures/heatmap_seasons.png", p1, width = 4.3 * n_panels + 2.4,
+         height = 5.4, bg = MT_SURFACE)
 
 # ---- 2. 25/26 all competitions, from per-match points -----------------------
 matches <- readr::read_csv("data/raw/heatmap_points.csv", show_col_types = FALSE) |>
@@ -55,7 +64,7 @@ if (nrow(matches) > 0) {
   p2 <- pitch_plot(
     matches,
     TITLE_FOOTPRINT,
-    paste0("Honest Ahanor, all competitions - aggregated from ",
+    paste0(PLAYER_NAME, ", all competitions - aggregated from ",
            n_matches, " matches"),
     CAPTION
   )

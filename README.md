@@ -1,9 +1,38 @@
-# Honest Ahanor — player analysis
+# Player analysis — Sofascore scraper + R charts
 
-Data scraping + analysis of Atalanta defender **Honest Ahanor** (b. 2008-02-23,
-signed from Genoa in July 2025). Scraping is Python; the data lands as plain
-CSV in `data/raw/`, so the visualization layer (heatmaps, age-range comparison
-charts, player comparisons) can be built in R or Python on top of it.
+Two analyses on one scraper. The data lands as plain CSV in `data/raw/`,
+the charts are R (ggplot2) on top of it.
+
+1. **A single-player analysis** (scripts 01–05, `R/comparisons.R`,
+   `R/heatmaps.R`, `R/club_comparison.R`, `R/leftfoot_scatter.R`). The
+   subject is configured in `scraping/sofascore.py` — currently
+   **Valentín Barco** (left-back, b. 2004-07-23; Sevilla and Strasbourg
+   loans in 24/25, Strasbourg in 25/26, Chelsea from summer 2026). The
+   pipeline was first built for Honest Ahanor (Atalanta centre-back); the
+   subject block below is all that changed to re-point it.
+2. **The Chelsea midfield question** (scripts 06–07, `R/midfield_*.R`) —
+   see the section further down.
+
+## Pointing the player analysis at a subject
+
+Four lines in `scraping/sofascore.py`:
+
+```python
+PLAYER_NAME = "Valentín Barco"
+PLAYER_ID = None            # None = resolved by Sofascore search on the first run of 01
+PLAYER_POSITION = "D"       # Sofascore's coarse position -> the comparison pool
+ROLE_CODES = {"LB", "DL", "LWB", "RB", "DR", "RWB"}   # detailed codes = "same role"
+ROLE_LABEL = "full-backs"
+```
+
+Plus two hand-kept labels in `R/viz_common.R`: `SEASON_TEAMS` (club per
+season, for the pizza titles — Sofascore's season stats carry no club) and
+`ROLE_LABEL` / `POSITION_LABEL`. The metric set (`METRICS` in
+`R/viz_common.R`) is a full-back's job description — defend, win duels,
+progress and create; swap it for another role. After changing the subject,
+delete the subject files in `data/raw/` (everything except the
+`peer_stats_*`, `squads_*` and `characteristics.csv` caches, which are
+league-wide and reusable).
 
 ## Why Sofascore (and not FBref)
 
@@ -39,15 +68,15 @@ to fetch the same JSON URLs.
 ```
 scraping/sofascore.py           shared client (throttle, retries, headers)
                                 + all parsing functions + constants
-scraping/01_scrape_player.py    bio, seasons list, per-season statistics
+scraping/01_scrape_player.py    resolves PLAYER_NAME -> id (search, cached in
+                                subject.json); bio, seasons list, per-season stats
 scraping/02_scrape_heatmaps.py  match list, per-match heatmap points,
                                 season-aggregate heatmaps
 scraping/03_scrape_peer_pool.py ALL Big-5 leagues: leaderboard stats +
                                 squad birth dates (per-league caches)
-scraping/04_build_pool.py       join + filter -> pool_u23_defenders.csv
-                                (U23, 600+ min, per-90s, is_cb tag) and
-                                pool_defenders_all.csv (same, any age)
-scraping/05_scrape_club_cbs.py  COMPARE_CLUB's centre-backs -> club_cbs.csv
+scraping/04_build_pool.py       join + filter -> pool_u23.csv (U23, 600+ min,
+                                per-90s, is_role tag) and pool_all.csv (any age)
+scraping/05_scrape_club_role.py COMPARE_CLUB's same-role players -> club_role.csv
 scraping/06_scrape_chelsea_midfield.py
                                 Chelsea midfield roster (MIDFIELD_ROSTER):
                                 ids, 25/26 stats + season heatmaps, plus
@@ -56,12 +85,14 @@ scraping/07_build_midfield_pool.py
                                 PL midfielder pool -> pool_pl_midfielders.csv
 R/viz_common.R                  shared: packages, design tokens, theme,
                                 pitch drawing (sourced, not run)
-R/comparisons.R                 percentile bars, pool distributions,
-                                tackles-vs-interceptions scatter
-R/heatmaps.R                    pitch heatmaps: Serie A seasons side by
-                                side + 25/26 all competitions
-R/club_comparison.R             Ahanor vs COMPARE_CLUB's CB room, dot-range
-                                chart on an all-ages percentile scale
+R/comparisons.R                 percentile pizzas, pool distributions,
+                                two-way scatter (SCATTER_X vs SCATTER_Y)
+R/heatmaps.R                    pitch heatmaps: one panel per league season
+                                + 25/26 all competitions
+R/club_comparison.R             subject vs COMPARE_CLUB's same-role room,
+                                dot-range chart on an all-ages percentile scale
+R/leftfoot_scatter.R            left-footed market: interceptions vs tackles,
+                                any age, subject highlighted
 R/midfield_creation_share.R     Chelsea midfield: who created (100% stacked
                                 bars, Enzo vs the rest)
 R/midfield_scatter.R            Chelsea midfield: defensive work vs key
@@ -80,27 +111,31 @@ python scraping/01_scrape_player.py
 python scraping/02_scrape_heatmaps.py    # run after 01 (uses its seasons list)
 python scraping/03_scrape_peer_pool.py   # ~160 requests, ~5 minutes
 python scraping/04_build_pool.py         # join/filter + CB tagging
-python scraping/05_scrape_club_cbs.py    # a handful of requests, cached
+python scraping/05_scrape_club_role.py   # a handful of requests, cached
 Rscript R/comparisons.R                  # needs R with ggplot2 etc. (auto-installs)
 Rscript R/heatmaps.R                     # pitch heatmaps -> figures/
 Rscript R/club_comparison.R              # the club-fit chart -> figures/
+Rscript R/leftfoot_scatter.R             # the left-footed market -> figures/
 python tests/test_parsing.py             # offline sanity check, no network
 ```
 
-**Both of Ahanor's seasons are in scope** (24/25 Genoa + 25/26 Atalanta —
-`SEASONS` in `sofascore.py`): his stats and season heatmaps cover every
-season Sofascore has for him, per-match heatmaps go back to July 2024, and
-the peer pool is scraped per season. The pool is every **Big-5 defender
-under 23** (age measured at each season's own end, so both seasons compare
-like-for-like) with 600+ league minutes; Ahanor's own rows always survive
-the filters. `04` additionally tags centre-backs via each player's
-characteristics endpoint (the only place Sofascore separates CB from
-full-back — the leaderboard just says "D"). The R script computes
-percentiles within each season's own pool, charts both seasons side by
-side, and prefers the CB-tagged pool, falling back to all young defenders
-if tagging came back thin. Cutoffs live in `scraping/sofascore.py`
-(`AGE_MAX`, `MIN_MINUTES`, `SEASONS`); changing them only requires
-re-running `04` and the R script — never a re-scrape.
+**Both seasons in `SEASONS` are in scope** (24/25 and 25/26). The subject's
+stats and season heatmaps cover every season Sofascore has for him,
+per-match heatmaps go back to `CUTOFF_DATE`, and the peer pool is scraped
+per season. The pool is every **Big-5 player of `PLAYER_POSITION` under
+23** (age measured at each season's own end, so both seasons compare
+like-for-like) with 600+ league minutes; the subject's own rows always
+survive the filters. `04` additionally tags the subject's role via each
+player's characteristics endpoint (the only place Sofascore separates
+full-back from centre-back — the leaderboard just says "D") using
+`ROLE_CODES`. The R script computes percentiles within each season's own
+pool, charts both seasons side by side, and prefers the role-tagged pool,
+falling back to the whole position if tagging came back thin. A player
+with two league rows in one season (a mid-season move — Barco's 24/25)
+keeps the row with more minutes in the percentile charts; the heatmap
+script shows both leagues as separate panels. Cutoffs live in
+`scraping/sofascore.py` (`AGE_MAX`, `MIN_MINUTES`, `SEASONS`); changing
+them only requires re-running `04` and the R script — never a re-scrape.
 
 Scripts skip any output already in `data/raw/` — scrape once, work from
 disk. Force a re-scrape with `FORCE_REFRESH=1` before the command (PowerShell:
@@ -115,7 +150,7 @@ heatmap is normal — it means no data for that player/match (unused sub).
 A second, squad-level analysis on the same scraper. The question is whether
 Chelsea's central midfield keeps a chance creator after Enzo Fernández's
 transfer, now that the Camara deal is off. The evidence base is the last
-full season (25/26). Nothing in the Ahanor pipeline is touched; the new
+full season (25/26). Nothing in the single-player pipeline is touched; the new
 scripts reuse the client, the parsing functions and the R design tokens.
 
 The roster is configured by **name** in `MIDFIELD_ROSTER` (`sofascore.py`),

@@ -1,28 +1,38 @@
 # comparisons.R ---------------------------------------------------------------
-# Ahanor vs U23 Big-5 centre-backs, from the scraped pool.
+# The subject vs U23 Big-5 players in his role, from the scraped pool.
 #
-# Reads  data/raw/pool_u23_defenders.csv   (made by scraping/04_build_pool.py)
+# Reads  data/raw/pool_u23.csv   (made by scraping/04_build_pool.py)
 # Writes figures/percentiles.png           his percentile per metric, in-pool
 #        figures/distributions.png         pool distributions with him marked
 #
 # Run:  Rscript R/comparisons.R
 #
-# Pool logic: prefer players tagged is_cb == "True"; if the tagging came back
-# too thin (Sofascore's characteristics endpoint is best-effort), fall back to
-# all U23 defenders and say so on the chart subtitle.
+# Pool logic: prefer players tagged is_role == "True"; if the tagging came
+# back too thin (Sofascore's characteristics endpoint is best-effort), fall
+# back to all U23 players of the coarse position and say so on the subtitle.
 
-source("R/viz_common.R")  # packages, tokens, theme, PLAYER_ID, CURRENT_SEASON
+source("R/viz_common.R")  # packages, tokens, theme, subject, CURRENT_SEASON
+require_subject()
 
 # ---- titles: edit freely, nothing else depends on the wording ---------------
-TITLE_PERCENTILES   <- "Ahanor Against His Generation"
+TITLE_PERCENTILES   <- paste(SUBJECT_SHORT, "Against His Generation")
 TITLE_DISTRIBUTIONS <- "The U23 Field, Metric by Metric"
-TITLE_SCATTER       <- "The Ball-Winning Plane"
+TITLE_SCATTER       <- "The Two-Way Plane"
+
+# scatter axes: any two pool columns. For a full-back: does he win the ball
+# AND create? For a centre-back the old pair was tackles vs interceptions.
+SCATTER_X <- "tackles_per90";   SCATTER_X_LABEL <- "Tackles per 90"
+SCATTER_Y <- "keyPasses_per90"; SCATTER_Y_LABEL <- "Key passes per 90"
+TOP_GROUP_LABEL <- "Top two-way players"
+CORNER_TOP_RIGHT <- "Wins it and creates"
+CORNER_TOP_LEFT  <- "Creator"
+CORNER_BOT_RIGHT <- "Ball-winner"
 
 # how many top combined performers get named/highlighted on the scatter
 N_TOP_PLAYERS <- 10
 
-POOL_CSV <- "data/raw/pool_u23_defenders.csv"
-MIN_CB_POOL <- 15  # fewer tagged CBs than this -> fall back to all defenders
+POOL_CSV <- "data/raw/pool_u23.csv"
+MIN_ROLE_POOL <- 15  # fewer tagged same-role players -> fall back to position
 
 # METRICS / METRIC_GROUPS / LOWER_IS_BETTER are shared config in viz_common.R
 
@@ -30,24 +40,39 @@ MIN_CB_POOL <- 15  # fewer tagged CBs than this -> fall back to all defenders
 raw <- readr::read_csv(POOL_CSV, show_col_types = FALSE)
 stopifnot(nrow(raw) > 0)
 
-# The CSV stores is_cb as "True"/"False"/"" and readr may parse it as logical
-# or character depending on the mix - normalize to logical either way.
-raw <- raw |> mutate(is_cb = toupper(as.character(is_cb)) %in% "TRUE")
+# A mid-season move gives a player two league rows in one season (Barco's
+# 24/25: Sevilla, then Strasbourg). Percentiles need one row per player and
+# season, so keep the row with the most minutes - and say so.
+moved <- raw |> count(player_id, season) |> filter(n > 1)
+if (nrow(moved) > 0) {
+  message(nrow(moved), " (player, season) pairs have two league rows - ",
+          "keeping the one with more minutes")
+}
+raw <- raw |>
+  mutate(.min = suppressWarnings(as.numeric(minutesPlayed))) |>
+  group_by(player_id, season) |>
+  slice_max(.min, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(-.min)
 
-cbs <- raw |> filter(is_cb | player_id == PLAYER_ID)
-if (sum(cbs$is_cb, na.rm = TRUE) >= MIN_CB_POOL) {
-  pool <- cbs
-  pool_label <- "U23 centre-backs, Big-5 leagues"
+# The CSV stores is_role as "True"/"False"/"" and readr may parse it as
+# logical or character depending on the mix - normalize to logical either way.
+raw <- raw |> mutate(is_role = toupper(as.character(is_role)) %in% "TRUE")
+
+same_role <- raw |> filter(is_role | player_id == PLAYER_ID)
+if (sum(same_role$is_role, na.rm = TRUE) >= MIN_ROLE_POOL) {
+  pool <- same_role
+  pool_label <- paste0("U23 ", ROLE_LABEL, ", Big-5 leagues")
 } else {
-  message("CB tagging too thin (", sum(raw$is_cb, na.rm = TRUE),
-          " tagged) - falling back to all U23 defenders")
+  message("role tagging too thin (", sum(raw$is_role, na.rm = TRUE),
+          " tagged) - falling back to all U23 ", POSITION_LABEL)
   pool <- raw
-  pool_label <- "U23 defenders, Big-5 leagues"
+  pool_label <- paste0("U23 ", POSITION_LABEL, ", Big-5 leagues")
 }
 
 player <- pool |> filter(player_id == PLAYER_ID)
 if (nrow(player) == 0) {
-  stop("Ahanor (", PLAYER_ID, ") is not in ", POOL_CSV,
+  stop(PLAYER_NAME, " (", PLAYER_ID, ") is not in ", POOL_CSV,
        " - check 04_build_pool.py output for the note about his row")
 }
 
@@ -100,14 +125,12 @@ subtitle_pct <- paste0(
 
 # pizza chart, one per season: wedge length = percentile, wedges coloured by
 # metric family, inked borders, dashed rings at 25/50/75, bold spokes between
-# families - two pizzas side by side make the Genoa -> Atalanta comparison
+# families - two pizzas side by side make the season-to-season comparison
 metric_order <- names(metrics)
 pz <- percentiles |>
   mutate(
     slice = factor(metric, levels = metric_order),
-    season_label = ifelse(season == CURRENT_SEASON,
-                          paste0(CURRENT_SEASON, " - Atalanta"),
-                          paste0(season, " - Genoa")),
+    season_label = season_label(season),
     wedge_label = round(pct)
   )
 # spokes sit on the boundaries between metric families
@@ -154,27 +177,27 @@ p1 <- ggplot(pz, aes(x = slice, y = pct)) +
     panel.spacing.x = unit(10, "pt")
   )
 
-save_fig("figures/percentiles.png", p1, width = 12, height = 7,
+save_fig("figures/percentiles.png", p1, width = 13, height = 7,
          bg = DK_SURFACE)
 
-# ---- chart 2: pool distributions with Ahanor marked (current season) --------
+# ---- chart 2: pool distributions with the subject marked (current season) --
 long <- long |>
   filter(season == CURRENT_SEASON) |>
-  mutate(who = ifelse(player_id == PLAYER_ID, "Honest Ahanor", pool_label))
+  mutate(who = ifelse(player_id == PLAYER_ID, PLAYER_NAME, pool_label))
 
 p2 <- ggplot() +
   geom_jitter(
-    data = filter(long, who != "Honest Ahanor"),
+    data = filter(long, who != PLAYER_NAME),
     aes(x = value, y = 0, colour = who),
     height = 0.32, size = 1.6, alpha = 0.6, na.rm = TRUE
   ) +
   geom_point(
-    data = filter(long, who == "Honest Ahanor"),
+    data = filter(long, who == PLAYER_NAME),
     aes(x = value, y = 0, fill = who),
     size = 3.4, shape = 21, colour = DK_INK, stroke = 0.7, na.rm = TRUE
   ) +
   scale_colour_manual(values = setNames(DK_POOL, pool_label)) +
-  scale_fill_manual(values = setNames(DK_ACCENT2, "Honest Ahanor")) +
+  scale_fill_manual(values = setNames(DK_ACCENT2, PLAYER_NAME)) +
   facet_wrap(~label, scales = "free_x", ncol = 3) +
   guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
   labs(
@@ -191,15 +214,15 @@ p2 <- ggplot() +
 save_fig("figures/distributions.png", p2, width = 10, height = 8,
          bg = DK_SURFACE)
 
-# ---- chart 3: tackles/90 vs interceptions/90, 25/26 -------------------------
-# The ball-winning plane. Top-right = high in both. The 6 best combined
-# performers (z-scored sum of the two rates) are named; Ahanor is always
-# named and keeps his own accent.
+# ---- chart 3: SCATTER_X vs SCATTER_Y, 25/26 ----------------------------------
+# Top-right = high in both. The N best combined performers (z-scored sum of
+# the two rates) are named; the subject is always named and keeps his own
+# accent.
 sc <- pool |>
   filter(season == CURRENT_SEASON) |>
   mutate(
-    t90 = suppressWarnings(as.numeric(tackles_per90)),
-    i90 = suppressWarnings(as.numeric(interceptions_per90))
+    t90 = suppressWarnings(as.numeric(.data[[SCATTER_X]])),
+    i90 = suppressWarnings(as.numeric(.data[[SCATTER_Y]]))
   ) |>
   filter(!is.na(t90), !is.na(i90))
 
@@ -210,8 +233,8 @@ top_ids <- others$player_id[
 
 sc <- sc |>
   mutate(grp = case_when(
-    player_id == PLAYER_ID ~ "Honest Ahanor",
-    player_id %in% top_ids ~ "Top ball-winners",
+    player_id == PLAYER_ID ~ PLAYER_NAME,
+    player_id %in% top_ids ~ TOP_GROUP_LABEL,
     TRUE ~ pool_label
   ))
 labeled <- sc |> filter(grp != pool_label)
@@ -228,15 +251,15 @@ p3 <- ggplot(sc, aes(x = t90, y = i90, fill = grp)) +
              linetype = "dashed", linewidth = 0.4) +
   geom_vline(xintercept = median(sc$t90), colour = DK_GRID,
              linetype = "dashed", linewidth = 0.4) +
-  corner(xr[2], yr[2], "Wins it both ways", 1, 0.5) +
-  corner(xr[1], yr[2], "Reads the game", 0, 0.5) +
-  corner(xr[2], yr[1], "Front-foot tackler", 1, 0.5) +
+  corner(xr[2], yr[2], CORNER_TOP_RIGHT, 1, 0.5) +
+  corner(xr[1], yr[2], CORNER_TOP_LEFT, 0, 0.5) +
+  corner(xr[2], yr[1], CORNER_BOT_RIGHT, 1, 0.5) +
   geom_point(data = filter(sc, grp == pool_label),
              size = 1.9, shape = 21, colour = DK_INK, stroke = 0.4,
              alpha = 0.75) +
-  geom_point(data = filter(sc, grp == "Top ball-winners"),
+  geom_point(data = filter(sc, grp == TOP_GROUP_LABEL),
              size = 2.8, shape = 21, colour = DK_INK, stroke = 0.6) +
-  geom_point(data = filter(sc, grp == "Honest Ahanor"),
+  geom_point(data = filter(sc, grp == PLAYER_NAME),
              size = 3.8, shape = 21, colour = DK_INK, stroke = 0.7) +
   ggrepel::geom_text_repel(
     data = labeled, aes(label = player_name),
@@ -246,17 +269,18 @@ p3 <- ggplot(sc, aes(x = t90, y = i90, fill = grp)) +
   ) +
   scale_fill_manual(values = setNames(
     c(DK_ACCENT2, DK_ACCENT, DK_POOL),
-    c("Honest Ahanor", "Top ball-winners", pool_label)
+    c(PLAYER_NAME, TOP_GROUP_LABEL, pool_label)
   )) +
   guides(fill = guide_legend(override.aes = list(size = 3, alpha = 1))) +
   labs(
     title = TITLE_SCATTER,
-    subtitle = paste0("Tackles and interceptions per 90 - ", pool_label, ", ",
-                      CURRENT_SEASON, " season. Dashed lines mark pool medians"),
-    x = "Tackles per 90", y = "Interceptions per 90",
+    subtitle = paste0(SCATTER_X_LABEL, " vs. ", tolower(SCATTER_Y_LABEL), " - ",
+                      pool_label, ", ", CURRENT_SEASON,
+                      " season. Dashed lines mark pool medians"),
+    x = SCATTER_X_LABEL, y = SCATTER_Y_LABEL,
     caption = caption_raw
   ) +
   theme_pitchside_dark()
 
-save_fig("figures/tackles_vs_interceptions.png", p3, width = 9, height = 7,
+save_fig("figures/two_way_plane.png", p3, width = 9, height = 7,
          bg = DK_SURFACE)

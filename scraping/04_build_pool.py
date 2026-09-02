@@ -5,21 +5,24 @@ Steps:
      on player_id
   2. compute age at each row's own season end (SEASONS) and per-90 versions
      of the count stats
-  3. filter: defenders, age < AGE_MAX at that season's end, minutes >=
-     MIN_MINUTES (Ahanor's own rows are always kept)
+  3. filter: PLAYER_POSITION, age < AGE_MAX at that season's end, minutes >=
+     MIN_MINUTES (the subject's own rows are always kept)
   4. enrich: fetch each pool player's detailed positions (the one endpoint
-     that knows CB vs full-back; the leaderboard only says 'D') -> is_cb
-     column. Best-effort: if the endpoint misbehaves, is_cb stays empty and
-     the pool is "all young defenders" - the R side falls back accordingly.
+     that separates e.g. full-back from centre-back; the leaderboard only
+     says 'D') -> is_role column (ROLE_CODES). Best-effort: if the endpoint
+     misbehaves, is_role stays empty and the pool is "all young <position>"
+     - the R side falls back accordingly.
 
 Outputs (data/raw/):
   characteristics.csv   player_id -> detailed positions cache (one network
                         call per pool player, ~1 request/1.5s; cached, so
                         re-runs are instant)
-  pool_u23_defenders.csv  the deliverable: one row per player with bio,
-                          league, raw + per-90 stats, age, is_cb
+  pool_all.csv          same-position pool, any age (percentile scale for
+                        the club comparison and the left-footed scatter)
+  pool_u23.csv          the deliverable: one row per player with bio,
+                        league, raw + per-90 stats, age, is_role
 
-Run AFTER 03:  python scraping/04_build_pool.py
+Run AFTER 01 and 03:  python scraping/04_build_pool.py
 """
 
 import csv
@@ -27,15 +30,17 @@ from datetime import date
 
 from sofascore import (
     AGE_MAX,
-    CB_CODES,
     DATA_RAW,
     MIN_MINUTES,
-    PLAYER_ID,
+    PLAYER_NAME,
+    PLAYER_POSITION,
+    ROLE_CODES,
     SEASONS,
     SofascoreClient,
     fetch_characteristics,
     load_characteristics_cache,
     output_exists,
+    subject_id,
     write_csv,
 )
 
@@ -61,7 +66,7 @@ def to_float(value):
         return None
 
 
-def build_pool(apply_age_filter: bool = True) -> list[dict]:
+def build_pool(player_id: int, apply_age_filter: bool = True) -> list[dict]:
     stats = read_csv("peer_stats.csv")
     if stats and "season" not in stats[0]:
         raise SystemExit(
@@ -78,23 +83,28 @@ def build_pool(apply_age_filter: bool = True) -> list[dict]:
         if reference is None:
             continue
         bio = squads.get(row["player_id"])
+        is_subject = row["player_id"] == str(player_id)
         if not bio or not bio.get("birth_date"):
-            continue
-        birth = date.fromisoformat(bio["birth_date"])
-        age = (reference - birth).days / 365.25
+            if not is_subject:
+                continue
+            bio = bio or {}
+        birth = date.fromisoformat(bio["birth_date"]) if bio.get("birth_date") else None
+        age = (reference - birth).days / 365.25 if birth else None
 
         # position comes from the SQUAD data - the leaderboard's player
         # object carries no position field (observed empty on real data)
-        position = bio.get("position") or row.get("position")
+        position = bio.get("position") or row.get("position") or (
+            PLAYER_POSITION if is_subject else None
+        )
 
-        # Ahanor's own rows always survive - the R side needs him in every
-        # season even where he misses a filter (e.g. minutes in 24/25)
-        is_subject = row["player_id"] == str(PLAYER_ID)
+        # the subject's own rows always survive - the R side needs him in
+        # every season even where he misses a filter (minutes, or a squad
+        # row that vanished after a transfer)
         minutes = to_float(row.get("minutesPlayed"))
         if not is_subject:
-            if position != "D":
+            if position != PLAYER_POSITION:
                 continue
-            if apply_age_filter and age >= AGE_MAX:
+            if apply_age_filter and (age is None or age >= AGE_MAX):
                 continue
             if not minutes or minutes < MIN_MINUTES:
                 continue
@@ -102,8 +112,8 @@ def build_pool(apply_age_filter: bool = True) -> list[dict]:
         merged = {
             **row,
             "position": position,
-            "birth_date": bio["birth_date"],
-            "age": round(age, 2),
+            "birth_date": bio.get("birth_date"),
+            "age": round(age, 2) if age is not None else None,
             "height_cm": bio.get("height_cm"),
             "preferred_foot": bio.get("preferred_foot"),
         }
@@ -118,46 +128,48 @@ def build_pool(apply_age_filter: bool = True) -> list[dict]:
 
 
 def enrich_positions(pool: list[dict]) -> None:
-    """Add is_cb via /player/{id}/characteristics (cached in characteristics.csv)."""
+    """Add is_role via /player/{id}/characteristics (cached in characteristics.csv)."""
     cache = load_characteristics_cache()
     fetch_characteristics(SofascoreClient(), {p["player_id"] for p in pool}, cache)
 
     for player in pool:
         positions = cache.get(player["player_id"], "")
         player["positions_detail"] = positions
-        player["is_cb"] = (
+        player["is_role"] = (
             "" if not positions
-            else str(bool(CB_CODES & set(positions.split("|"))))
+            else str(bool(ROLE_CODES & set(positions.split("|"))))
         )
 
 
 def main() -> None:
-    # all-ages defender pool: the common percentile scale for the club
-    # comparison chart (no age filter, no CB enrichment needed)
-    if not output_exists("pool_defenders_all.csv"):
-        all_pool = build_pool(apply_age_filter=False)
-        print(f"all-ages pool: {len(all_pool)} defenders")
-        write_csv(all_pool, "pool_defenders_all.csv")
+    player_id = subject_id()  # offline: 01 cached it (or PLAYER_ID is set)
 
-    if output_exists("pool_u23_defenders.csv"):
+    # all-ages same-position pool: the common percentile scale for the club
+    # comparison chart (no age filter, no role enrichment needed)
+    if not output_exists("pool_all.csv"):
+        all_pool = build_pool(player_id, apply_age_filter=False)
+        print(f"all-ages pool: {len(all_pool)} players (position {PLAYER_POSITION})")
+        write_csv(all_pool, "pool_all.csv")
+
+    if output_exists("pool_u23.csv"):
         return
-    pool = build_pool()
-    print(f"pool after age/position/minutes filter: {len(pool)} defenders")
+    pool = build_pool(player_id)
+    print(f"pool after age/position/minutes filter: {len(pool)} players")
     if not pool:
         raise SystemExit("Empty pool - check peer_stats.csv/squads.csv and filters")
 
     for season in SEASONS:
-        if not any(p["player_id"] == str(PLAYER_ID) and p.get("season") == season
+        if not any(p["player_id"] == str(player_id) and p.get("season") == season
                    for p in pool):
-            print(f"NOTE: Ahanor has no {season} row (not ranked on that "
+            print(f"NOTE: {PLAYER_NAME} has no {season} row (not ranked on that "
                   "season's leaderboard?) - the R charts will show that "
                   "season without him.")
 
     enrich_positions(pool)
-    n_cb = sum(1 for p in pool if p["is_cb"] == "True")
-    print(f"tagged {n_cb} centre-backs "
-          f"({sum(1 for p in pool if p['is_cb'] == '')} unknown)")
-    write_csv(pool, "pool_u23_defenders.csv")
+    n_role = sum(1 for p in pool if p["is_role"] == "True")
+    print(f"tagged {n_role} same-role players ({ROLE_CODES}) "
+          f"({sum(1 for p in pool if p['is_role'] == '')} unknown)")
+    write_csv(pool, "pool_u23.csv")
 
 
 if __name__ == "__main__":

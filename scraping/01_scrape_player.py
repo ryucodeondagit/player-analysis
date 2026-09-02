@@ -1,4 +1,4 @@
-"""Scrape Ahanor's profile and season-by-season statistics from Sofascore.
+"""Scrape the subject's (PLAYER_NAME in sofascore.py) profile and season stats.
 
 Outputs (data/raw/):
   player_profile.csv       one row: bio (birth date, height, foot, position)
@@ -14,11 +14,11 @@ import json
 
 from sofascore import (
     DATA_RAW,
-    PLAYER_ID,
     SofascoreClient,
     output_exists,
     parse_season_stats,
     parse_statistics_seasons,
+    subject_id,
     ts_to_date,
     write_csv,
 )
@@ -26,10 +26,11 @@ from sofascore import (
 
 def main() -> None:
     client = SofascoreClient()
+    player_id = subject_id(client)
 
     # ---- profile -------------------------------------------------------------
     if not output_exists("player_profile.csv"):
-        body = client.get("player", PLAYER_ID)
+        body = client.get("player", player_id)
         player = body.get("player") or {}
         team = player.get("team") or {}
         write_csv(
@@ -58,7 +59,7 @@ def main() -> None:
     # ---- which (tournament, season) pairs have stats -------------------------
     seasons = None
     if not output_exists("player_seasons.csv"):
-        body = client.get("player", PLAYER_ID, "statistics", "seasons")
+        body = client.get("player", player_id, "statistics", "seasons")
         seasons = parse_statistics_seasons(body)
         if not seasons:
             raise SystemExit(
@@ -79,7 +80,7 @@ def main() -> None:
         for season in seasons:
             print(f"stats: {season['tournament']} {season['season_name']}")
             body = client.get(
-                "player", PLAYER_ID,
+                "player", player_id,
                 "unique-tournament", season["tournament_id"],
                 "season", season["season_id"],
                 "statistics", "overall",

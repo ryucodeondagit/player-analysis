@@ -154,7 +154,7 @@ def test_fetch_matches_pagination():
             requested.append(page)
             return pages[page]
 
-    matches = mod.fetch_matches(StubClient())
+    matches = mod.fetch_matches(StubClient(), 1634980)
     assert requested == [0, 1]           # never fetched page 2
     assert [m["event_id"] for m in matches] == [90, 101, 102]  # deduped, sorted
 
