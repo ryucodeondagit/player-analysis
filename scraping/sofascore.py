@@ -84,6 +84,32 @@ COMPARE_CLUB = "Chelsea"
 CB_CODES = {"CB", "DC"}
 CUTOFF_DATE = date(2024, 7, 1)  # match-data horizon: start of the 24/25 season
 
+# ---- Chelsea midfield analysis (06/07 + R/midfield_*.R) ----------------------
+# "Can the midfield survive without Enzo?" - a squad-level question, so the
+# unit of analysis is a roster, not one player. Names below are resolved to
+# Sofascore ids at scrape time (Chelsea's current squad first, then search),
+# so a departed player and a new signing both resolve without hand-copied ids.
+PREMIER_LEAGUE_ID = BIG5_LEAGUES["premier-league"]
+CHELSEA_TEAM_ID = 38          # https://www.sofascore.com/team/football/chelsea/38
+MIDFIELD_SEASON = "25/26"     # last full season = the evidence base
+
+# name -> role. Roles drive the charts: "departed" is the hole, "stays" is
+# what is left, "new signing" is what was bought to fill it. Edit freely -
+# Cole Palmer is deliberately absent (a 10/winger, not a central midfielder,
+# and the question is about the central midfield trio).
+MIDFIELD_ROSTER = {
+    "Enzo Fernández": "departed",
+    "Moisés Caicedo": "stays",
+    "Roméo Lavia": "stays",
+    "Andrey Santos": "stays",
+    "Dário Essugo": "stays",
+    "Valentín Barco": "new signing",
+    "Jordan Henderson": "new signing",
+}
+# Manual override when name resolution picks the wrong namesake (or search
+# is down): config name -> Sofascore player id. Wins over squad and search.
+MIDFIELD_PLAYER_IDS: dict[str, int] = {}
+
 DATA_RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
 
 # Scrape once, then work from disk: scripts skip outputs that already exist.
@@ -365,3 +391,90 @@ def parse_leaderboard_page(body: dict | None) -> list[dict]:
                 row[key] = value
         rows.append(row)
     return rows
+
+
+# ---- script loader -----------------------------------------------------------
+# Scrape scripts are numbered ("03_..."), which is not a valid module name,
+# so a script that reuses another script's functions loads it by path.
+
+def import_script(name: str):
+    """Import scraping/<name>.py as a module (e.g. import_script("03_scrape_peer_pool"))."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# ---- name matching -----------------------------------------------------------
+
+def normalize_name(name: str | None) -> str:
+    """Lower-case ASCII form: 'Enzo Fernández' -> 'enzo fernandez'."""
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", name or "")
+    return "".join(c for c in text if not unicodedata.combining(c)).lower().strip()
+
+
+def names_match(wanted: str, candidate: str | None) -> bool:
+    """True when every word of `wanted` appears in `candidate` (accent/case-insensitive).
+
+    Sofascore prints some players by a short name ("Andrey Santos") and some
+    by the full one ("Andrey Nascimento dos Santos"), so a whole-word subset
+    test is the practical match - it survives both.
+    """
+    want = normalize_name(wanted).split()
+    have = set(normalize_name(candidate).split())
+    return bool(want) and all(w in have for w in want)
+
+
+def parse_search_players(body: dict | None) -> list[dict]:
+    """Player hits from /search/all?q=... as flat rows.
+
+    Observed shape: {"results": [{"type": "player", "entity": {...}}, ...]};
+    a flat {"players": [...]} list is handled too. Non-player hits (teams,
+    managers) are dropped.
+    """
+    if not body:
+        return []
+    hits = []
+    for result in body.get("results") or []:
+        entity = result.get("entity") if isinstance(result, dict) else None
+        if result.get("type") == "player" and entity:
+            hits.append(entity)
+    hits.extend(body.get("players") or [])
+    rows = []
+    for player in hits:
+        if not isinstance(player, dict) or player.get("id") is None:
+            continue
+        rows.append(
+            {
+                "player_id": player.get("id"),
+                "player_name": player.get("name"),
+                "team_name": (player.get("team") or {}).get("name"),
+                "position": player.get("position"),
+            }
+        )
+    return rows
+
+
+def pick_season_row(seasons: list[dict], season_name: str,
+                    preferred_tournament_id: int | None = None,
+                    allowed_tournament_ids=None) -> dict | None:
+    """The (tournament, season) row to use as a player's `season_name` evidence.
+
+    Preference order: the preferred tournament (Premier League), then any
+    allowed league (Big 5 - a new signing bought from abroad), then whatever
+    Sofascore has for that season. None when the player has no such season.
+    """
+    rows = [s for s in seasons if str(s.get("season_name")) == season_name]
+    allowed = {str(t) for t in (allowed_tournament_ids or [])}
+    for row in rows:
+        if str(row.get("tournament_id")) == str(preferred_tournament_id):
+            return row
+    for row in rows:
+        if str(row.get("tournament_id")) in allowed:
+            return row
+    return rows[0] if rows else None

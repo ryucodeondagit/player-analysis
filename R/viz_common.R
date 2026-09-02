@@ -211,3 +211,50 @@ theme_pitch <- function() {
       panel.border = element_blank()  # the pitch outline is its own frame
     )
 }
+
+# matte charcoal surface, a step lighter than DK_SURFACE - the pitch maps
+# and the scatters sit on it. All DK_* marks were contrast-checked on it too.
+MT_SURFACE <- "#252523"
+
+# ---- heatmap layers ----------------------------------------------------------
+# density surface: inferno ramp (deep purple -> yellow), fading to
+# transparent at the low end so the pitch shows through outside the active
+# zones. Multi-hue so the rings are easy to tell apart, monotonic in
+# lightness so the order (cool = fringe, hot = home zone) reads at a glance.
+heat_layers <- function() {
+  list(
+    stat_density_2d(
+      geom = "polygon",
+      aes(x = x, y = y, fill = after_stat(level), alpha = after_stat(level)),
+      bins = 10, contour_var = "ndensity",
+      # thin ink line between contour bands - each ring reads separately
+      colour = "#121211", linewidth = 0.2
+    ),
+    scale_fill_viridis_c(option = "inferno", begin = 0.15, end = 0.95,
+                         guide = "none"),
+    scale_alpha_continuous(range = c(0.25, 0.95), guide = "none")
+  )
+}
+
+# one pitch heatmap (facet it from the caller for small multiples).
+# `points` needs x, y columns, already expanded by their count weight.
+pitch_plot <- function(points, title, subtitle, caption, surface = MT_SURFACE) {
+  ggplot(points) +
+    heat_layers() +
+    pitch_layers(line_col = "#55534e") +
+    # direction-of-attack arrow in the strip below the pitch
+    annotate("segment", x = 42, xend = 58, y = -5, yend = -5,
+             colour = DK_TEXT_2, linewidth = 0.5,
+             arrow = arrow(length = unit(5, "pt"), type = "closed")) +
+    annotate("text", x = 60.5, y = -5, label = "Attack", hjust = 0,
+             size = 2.9, colour = DK_TEXT_2, family = FONT) +
+    coord_fixed(ratio = 68 / 105, xlim = c(0, 100), ylim = c(-9, 100),
+                expand = FALSE) +
+    labs(title = title, subtitle = subtitle, caption = caption) +
+    theme_pitch() +
+    theme(
+      plot.background  = element_rect(fill = surface, colour = NA),
+      panel.background = element_rect(fill = surface, colour = NA)
+    )
+}
+

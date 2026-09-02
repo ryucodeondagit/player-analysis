@@ -20,48 +20,7 @@ TITLE_FOOTPRINT <- "The 2025-26 Footprint"
 
 CAPTION <- chart_footer("Sofascore 0-100 pitch coordinates")
 
-# matte charcoal surface, matching the left-footed scatter
-MT_SURFACE <- "#252523"
-
-# density surface: sequential blue, fading to transparent at the low end so
-# the pitch shows through outside his active zones
-heat_layers <- function() {
-  list(
-    stat_density_2d(
-      geom = "polygon",
-      aes(x = x, y = y, fill = after_stat(level), alpha = after_stat(level)),
-      bins = 10, contour_var = "ndensity",
-      # thin ink line between contour bands - each ring reads separately
-      colour = "#121211", linewidth = 0.2
-    ),
-    # inferno ramp: deep purple -> red -> orange -> yellow. Multi-hue so the
-    # rings are easy to tell apart, but monotonic in lightness so the order
-    # (cool = fringe, hot = home zone) still reads at a glance.
-    scale_fill_viridis_c(option = "inferno", begin = 0.15, end = 0.95,
-                         guide = "none"),
-    scale_alpha_continuous(range = c(0.25, 0.95), guide = "none")
-  )
-}
-
-pitch_plot <- function(points, title, subtitle) {
-  ggplot(points) +
-    heat_layers() +
-    pitch_layers(line_col = "#55534e") +
-    # direction-of-attack arrow in the strip below the pitch
-    annotate("segment", x = 42, xend = 58, y = -5, yend = -5,
-             colour = DK_TEXT_2, linewidth = 0.5,
-             arrow = arrow(length = unit(5, "pt"), type = "closed")) +
-    annotate("text", x = 60.5, y = -5, label = "Attack", hjust = 0,
-             size = 2.9, colour = DK_TEXT_2, family = FONT) +
-    coord_fixed(ratio = 68 / 105, xlim = c(0, 100), ylim = c(-9, 100),
-                expand = FALSE) +
-    labs(title = title, subtitle = subtitle, caption = CAPTION) +
-    theme_pitch() +
-    theme(
-      plot.background  = element_rect(fill = MT_SURFACE, colour = NA),
-      panel.background = element_rect(fill = MT_SURFACE, colour = NA)
-    )
-}
+# heat_layers() / pitch_plot() / MT_SURFACE come from viz_common.R
 
 dir.create("figures", showWarnings = FALSE)
 
@@ -78,7 +37,8 @@ if (nrow(seasons) == 0) stop("no Serie A rows in season_heatmaps.csv")
 p1 <- pitch_plot(
   seasons,
   TITLE_SEASONS,
-  "Honest Ahanor's Serie A heatmaps, season by season"
+  "Honest Ahanor's Serie A heatmaps, season by season",
+  CAPTION
 ) +
   facet_wrap(~season_label, ncol = 2)
 
@@ -96,7 +56,8 @@ if (nrow(matches) > 0) {
     matches,
     TITLE_FOOTPRINT,
     paste0("Honest Ahanor, all competitions - aggregated from ",
-           n_matches, " matches")
+           n_matches, " matches"),
+    CAPTION
   )
   save_fig("figures/heatmap_2526_all.png", p2, width = 8, height = 6.4,
            bg = MT_SURFACE)

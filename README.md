@@ -48,6 +48,12 @@ scraping/04_build_pool.py       join + filter -> pool_u23_defenders.csv
                                 (U23, 600+ min, per-90s, is_cb tag) and
                                 pool_defenders_all.csv (same, any age)
 scraping/05_scrape_club_cbs.py  COMPARE_CLUB's centre-backs -> club_cbs.csv
+scraping/06_scrape_chelsea_midfield.py
+                                Chelsea midfield roster (MIDFIELD_ROSTER):
+                                ids, 25/26 stats + season heatmaps, plus
+                                the PL 25/26 leaderboard/squad caches
+scraping/07_build_midfield_pool.py
+                                PL midfielder pool -> pool_pl_midfielders.csv
 R/viz_common.R                  shared: packages, design tokens, theme,
                                 pitch drawing (sourced, not run)
 R/comparisons.R                 percentile bars, pool distributions,
@@ -56,6 +62,12 @@ R/heatmaps.R                    pitch heatmaps: Serie A seasons side by
                                 side + 25/26 all competitions
 R/club_comparison.R             Ahanor vs COMPARE_CLUB's CB room, dot-range
                                 chart on an all-ages percentile scale
+R/midfield_creation_share.R     Chelsea midfield: who created (100% stacked
+                                bars, Enzo vs the rest)
+R/midfield_scatter.R            Chelsea midfield: defensive work vs key
+                                passes, PL midfielders, roster highlighted
+R/midfield_heatmaps.R           Chelsea midfield: one pitch per roster
+                                player, 25/26 season heatmaps
 tests/test_parsing.py           offline tests (mock JSON, no network)
 data/raw/                       CSV output (gitignored; re-creatable)
 ```
@@ -97,6 +109,61 @@ disk. Force a re-scrape with `FORCE_REFRESH=1` before the command (PowerShell:
 Requests are throttled to one per 1.5s with retry/backoff on 429/5xx.
 Expect `02` to take a few minutes (one request per match). A 404 from a
 heatmap is normal — it means no data for that player/match (unused sub).
+
+## Chelsea midfield: can it survive without Enzo?
+
+A second, squad-level analysis on the same scraper. The question is whether
+Chelsea's central midfield keeps a chance creator after Enzo Fernández's
+transfer, now that the Camara deal is off. The evidence base is the last
+full season (25/26). Nothing in the Ahanor pipeline is touched; the new
+scripts reuse the client, the parsing functions and the R design tokens.
+
+The roster is configured by **name** in `MIDFIELD_ROSTER` (`sofascore.py`),
+each with a role: `departed`, `stays`, `new signing`. Names resolve to
+Sofascore ids at scrape time - Chelsea's current squad first, then
+Sofascore search (that is how the departed player still resolves). If
+search picks a namesake, pin the id in `MIDFIELD_PLAYER_IDS`. The two new
+signings are taken to be Valentín Barco and Jordan Henderson - edit the
+roster if that is wrong. Cole Palmer is deliberately not on it: he is a
+10/winger, and the question is about the central trio.
+
+Each roster player's evidence is his 25/26 league season: Premier League
+if he has one, otherwise any Big-5 league (a signing bought from abroad
+brings his own league's heatmap). Players without a 25/26 Premier League
+row stay out of the scatter but keep their heatmap panel.
+
+```sh
+python scraping/06_scrape_chelsea_midfield.py  # ~40 requests + PL caches if missing
+python scraping/07_build_midfield_pool.py      # offline join/filter
+Rscript R/midfield_creation_share.R            # figures/midfield_creation_share.png
+Rscript R/midfield_scatter.R                   # figures/midfield_map.png
+Rscript R/midfield_heatmaps.R                  # figures/midfield_heatmaps.png
+```
+
+If `03` already ran, `06` reuses its `peer_stats_premier-league_25-26.csv`
+and `squads_premier-league.csv`; otherwise it scrapes just those two
+(~30 requests). Sofascore's search endpoint (`/search/all`) is used for the
+first time here - if it comes back in a shape `parse_search_players` does
+not recognise, the script says which names failed and how to pin them.
+
+The three charts, and what each is for:
+
+* **Creation share** - one 100% stacked bar per metric (minutes first,
+  then key passes, big chances created, xA, assists), split by player. If
+  the departed player's creation share is far above his minutes share, the
+  hole is the creation itself, not one starter's minutes. The subtitle
+  states that comparison from the data.
+* **Midfield map** - every PL midfielder (600+ min) by tackles +
+  interceptions per 90 (x) and key passes per 90 (y). Roster players are
+  coloured by role; the league's top creators are named for context. The
+  message is the shape: where the remaining blue dots sit, and whether any
+  of them sits near the orange one.
+* **Heatmap grid** - one pitch per roster player, departed first, new
+  signings last on their own 25/26 league. Panel strips carry role, league
+  and minutes.
+
+The R scripts use "·" in labels; run them under a UTF-8 locale (the
+default on current R/Windows; on a minimal Linux set `LANG=C.UTF-8`).
 
 ## Notes on the data
 

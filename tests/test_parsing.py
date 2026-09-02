@@ -15,14 +15,17 @@ SCRAPING = Path(__file__).resolve().parent.parent / "scraping"
 sys.path.insert(0, str(SCRAPING))
 
 from sofascore import (  # noqa: E402
+    names_match,
     parse_characteristics,
     parse_event,
     parse_heatmap,
     parse_leaderboard_page,
+    parse_search_players,
     parse_season_stats,
     parse_squad,
     parse_standings_team_ids,
     parse_statistics_seasons,
+    pick_season_row,
 )
 
 
@@ -154,6 +157,98 @@ def test_fetch_matches_pagination():
     matches = mod.fetch_matches(StubClient())
     assert requested == [0, 1]           # never fetched page 2
     assert [m["event_id"] for m in matches] == [90, 101, 102]  # deduped, sorted
+
+
+def test_names_match():
+    assert names_match("Enzo Fernández", "Enzo Fernandez")
+    assert names_match("Andrey Santos", "Andrey Nascimento dos Santos")
+    assert names_match("Moisés Caicedo", "Moisés Caicedo")
+    assert not names_match("Jordan Henderson", "Dean Henderson")
+    assert not names_match("Enzo Fernández", None)
+
+
+def test_parse_search_players():
+    body = {
+        "results": [
+            {"type": "team", "entity": {"id": 38, "name": "Chelsea"}},
+            {"type": "player", "entity": {
+                "id": 1, "name": "Enzo Fernández", "position": "M",
+                "team": {"name": "Real Madrid"}}},
+            {"type": "player", "entity": {"id": 2, "name": "Enzo Pérez",
+                                          "team": {"name": "River Plate"}}},
+        ]
+    }
+    rows = parse_search_players(body)
+    assert [r["player_id"] for r in rows] == [1, 2]
+    assert rows[0]["team_name"] == "Real Madrid"
+    # flat variant
+    assert parse_search_players({"players": [{"id": 3, "name": "X"}]})[0]["player_id"] == 3
+    assert parse_search_players(None) == []
+
+
+def test_pick_season_row():
+    seasons = [
+        {"tournament_id": 7, "tournament": "Champions League", "season_id": 90,
+         "season_name": "25/26"},
+        {"tournament_id": 34, "tournament": "Ligue 1", "season_id": 91,
+         "season_name": "25/26"},
+        {"tournament_id": 17, "tournament": "Premier League", "season_id": 80,
+         "season_name": "24/25"},
+    ]
+    # Premier League preferred, but this player has none in 25/26 -> Big-5
+    pick = pick_season_row(seasons, "25/26", 17, [17, 8, 23, 35, 34])
+    assert pick["season_id"] == 91
+    # without an allowed list, first 25/26 row wins
+    assert pick_season_row(seasons, "25/26")["season_id"] == 90
+    assert pick_season_row(seasons, "23/24") is None
+    # csv round-trip: ids come back as strings
+    csv_rows = [{**s, "tournament_id": str(s["tournament_id"])} for s in seasons]
+    assert pick_season_row(csv_rows, "24/25", 17)["season_id"] == 80
+
+
+def test_build_midfield_pool():
+    spec = importlib.util.spec_from_file_location(
+        "build_pool", SCRAPING / "07_build_midfield_pool.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    stats = [
+        {"player_id": "1", "player_name": "Enzo", "minutesPlayed": "2500",
+         "keyPasses": "50", "tackles": "40"},
+        {"player_id": "2", "player_name": "Mid, short minutes",
+         "minutesPlayed": "300", "keyPasses": "3", "tackles": "5"},
+        {"player_id": "3", "player_name": "A striker", "minutesPlayed": "2000",
+         "keyPasses": "30", "tackles": "10"},
+        {"player_id": "4", "player_name": "Pool mid", "minutesPlayed": "1800",
+         "keyPasses": "20", "tackles": "60"},
+        {"player_id": "5", "player_name": "Essugo (tracked, few minutes)",
+         "minutesPlayed": "200", "keyPasses": "1", "tackles": "4"},
+    ]
+    squads = [  # Enzo (1) has left the league: no squad row
+        {"player_id": "2", "position": "M", "birth_date": "2000-01-01"},
+        {"player_id": "3", "position": "F", "birth_date": "2000-01-01"},
+        {"player_id": "4", "position": "M", "birth_date": "1999-05-05"},
+        {"player_id": "5", "position": "M", "birth_date": "2005-03-14"},
+    ]
+    roster = [
+        {"player_id": "1", "role": "departed", "config_name": "Enzo Fernández"},
+        {"player_id": "5", "role": "stays", "config_name": "Dário Essugo"},
+    ]
+    pool = mod.build_pool(stats, squads, roster, ["keyPasses", "tackles"], to_float)
+    ids = [p["player_id"] for p in pool]
+    assert ids == ["1", "4", "5"]          # tracked survive; F and <600 min drop
+    enzo = pool[0]
+    assert enzo["position"] == "M" and enzo["role"] == "departed"
+    assert enzo["keyPasses_per90"] == 1.8
+    assert pool[1]["role"] == "" and pool[1]["birth_date"] == "1999-05-05"
+    assert pool[2]["player_name"] == "Dário Essugo"   # short config name wins
 
 
 if __name__ == "__main__":
